@@ -1,0 +1,14 @@
+# Allowlist: no secrets, visitor data, Git metadata, or large source library.
+**
+!Dockerfile
+!.dockerignore
+!package.json
+!package-lock.json
+!index.html
+!vite.config.js
+!src/
+!src/**
+!server/
+!server/**
+!public/
+!public/**

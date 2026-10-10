@@ -1,0 +1,13 @@
+{$DOMAIN:photobooth-jepara.duckdns.org} {
+    encode zstd gzip
+    header {
+        X-Content-Type-Options nosniff
+        Referrer-Policy no-referrer
+        Permissions-Policy "camera=(self), microphone=(), geolocation=()"
+    }
+    # Allow the 8 MB photo plus multipart form overhead.
+    request_body {
+        max_size 10MB
+    }
+    reverse_proxy app:8787
+}

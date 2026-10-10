@@ -3,7 +3,11 @@ dist
 .env
 .env.*
 !.env.example
+!.env.docker.example
 data/*.db
+data/*.db-shm
+data/*.db-wal
 data/generated/*
 data/uploads/*
+/backups/
 .DS_Store

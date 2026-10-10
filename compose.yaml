@@ -1,0 +1,72 @@
+name: photobooth-jepara
+
+services:
+  app:
+    build:
+      context: .
+      target: runtime
+    restart: unless-stopped
+    init: true
+    environment:
+      NODE_ENV: production
+      PORT: "8787"
+      # Derive from DOMAIN so an old localhost setting cannot leak into QR links.
+      PUBLIC_BASE_URL: https://${DOMAIN:-photobooth-jepara.duckdns.org}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:?Isi GEMINI_API_KEY di .env sebelum deploy}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.5-flash-image}
+      MAX_UPLOAD_MB: "8"
+      NODE_OPTIONS: --max-old-space-size=512
+      MALLOC_ARENA_MAX: "2"
+      TZ: Asia/Jakarta
+    volumes:
+      - photobooth_data:/app/data
+    # No host port: the backend is only reached through Caddy.
+    expose:
+      - "8787"
+    mem_limit: 1g
+    pids_limit: 128
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8787/api/health', {signal: AbortSignal.timeout(4000)}).then(r => {if (!r.ok) process.exit(1)}).catch(() => process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    environment:
+      DOMAIN: ${DOMAIN:-photobooth-jepara.duckdns.org}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      app:
+        condition: service_healthy
+    mem_limit: 128m
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  photobooth_data:
+  caddy_data:
+  caddy_config:

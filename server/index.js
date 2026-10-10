@@ -40,7 +40,7 @@ const characterMeta = {
   kartini: 'R.A. Kartini', kardinah: 'R.A. Kardinah', roekmini: 'R.A. Roekmini', sosrokartono: 'R.M.P. Sosrokartono', sosroningrat: 'R.M.A.A. Sosroningrat', soesalit: 'Soesalit'
 }
 const referenceMap = {
-  kartini: 'Tokoh Pahlawan/1_ra kartini/Kartini_1a.png', kardinah: 'Tokoh Pahlawan/3_kardinah/Kardinah_1a.png', roekmini: 'Tokoh Pahlawan/4_roekmini/Roekmini_1.png', sosrokartono: 'Tokoh Pahlawan/5_sosrokartono/Sosrokartono_1.png', sosroningrat: 'Tokoh Pahlawan/6_raden mas adipati ario sosroningrat/Raden mas adipati_1.png', soesalit: 'Tokoh Pahlawan/7_soesalit/Soesalit_1.png'
+  kartini: 'public/assets/kartini.png', kardinah: 'public/assets/kardinah.png', roekmini: 'public/assets/roekmini.png', sosrokartono: 'public/assets/sosrokartono.png', sosroningrat: 'public/assets/sosroningrat.png', soesalit: 'public/assets/soesalit.png'
 }
 
 function safeJson(value, fallback) { try { return JSON.parse(value) } catch { return fallback } }
