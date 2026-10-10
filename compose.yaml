@@ -13,7 +13,8 @@ services:
       # QR links must include :8443 because standard 443 belongs to another service.
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-https://photobooth-jepara.duckdns.org:8443}
       GEMINI_API_KEY: ${GEMINI_API_KEY:?Isi GEMINI_API_KEY di .env sebelum deploy}
-      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.5-flash-image}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-nano-banana-2.1}
+      ALLOW_LOCAL_FALLBACK: ${ALLOW_LOCAL_FALLBACK:-false}
       MAX_UPLOAD_MB: "8"
       NODE_OPTIONS: --max-old-space-size=512
       MALLOC_ARENA_MAX: "2"

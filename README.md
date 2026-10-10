@@ -8,7 +8,7 @@ A lightweight, museum-first photobooth web app for a 2 GB VPS. Visitors select a
 - Express: small server/API layer that keeps the Gemini secret off the client.
 - SQLite: local metadata and guest book storage, suitable for a single museum kiosk/VPS.
 - Sharp: converts input/output to WebP and creates gallery thumbnails.
-- Gemini image generation: configurable through `GEMINI_MODEL`; if the provider is unavailable, the flow uses a local branded fallback so a visitor session does not get stuck.
+- Gemini image generation: configurable through `GEMINI_MODEL`, using the official Interactions image endpoint. Production fallback is disabled by default so a branded overlay can never be mistaken for a Gemini result. The Gemini API project must have image-generation quota; a Free Tier `limit: 0` response is a provider quota issue.
 
 ## Run locally
 
