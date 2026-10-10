@@ -1,4 +1,9 @@
 {$DOMAIN:photobooth-jepara.duckdns.org} {
+    # DNS-01 avoids ports 80/443, which are already owned by another VPS service.
+    # DUCKDNS_API_TOKEN is injected by Compose and never stored in this file.
+    tls {
+        dns duckdns {env.DUCKDNS_API_TOKEN}
+    }
     encode zstd gzip
     header {
         X-Content-Type-Options nosniff

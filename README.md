@@ -42,11 +42,12 @@ docker compose ps
 docker compose logs --tail=50 caddy
 ```
 
-Port host HTTP default adalah 8080 karena port 80 VPS sudah dipakai layanan lain;
-HTTPS tetap di 443 sehingga QR dan akses utama tetap memakai domain yang sama.
-Pastikan TCP 443 (dan 8080 bila ingin mengakses endpoint HTTP langsung) diizinkan.
-Jika ingin redirect dari HTTP port 80 juga, arahkan service lama pada port 80 ke
-Caddy atau atur reverse proxy untuk domain ini.
+Port 80 dan 443 VPS sudah dipakai layanan lain. Stack ini memakai HTTP `8080` dan
+HTTPS `8443` dengan DNS-01 DuckDNS. URL publik default menjadi
+`https://photobooth-jepara.duckdns.org:8443`; QR memakai URL tersebut.
+Isi `DUCKDNS_API_TOKEN` di `.env` agar Caddy dapat menerbitkan sertifikat valid
+tanpa membutuhkan port 80/443. Jika service lama bisa menjadi reverse proxy untuk
+domain ini, `PUBLIC_BASE_URL` dapat diubah menjadi URL HTTPS standar tanpa `:8443`.
 Database dan foto berada di named volume `photobooth-jepara_photobooth_data`,
 sehingga tetap ada saat container diperbarui. Jangan jalankan `docker compose down -v`
 jika ingin mempertahankan data.

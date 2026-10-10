@@ -32,3 +32,11 @@ COPY server ./server
 USER node
 EXPOSE 8787
 CMD ["node", "server/index.js"]
+
+# Caddy needs the DuckDNS DNS-01 provider because ports 80 and 443 are already
+# occupied by another service on the VPS. DNS-01 allows valid public TLS on 8443.
+FROM caddy:2-builder AS caddy-builder
+RUN xcaddy build --with github.com/caddy-dns/duckdns
+
+FROM caddy:2-alpine AS caddy-runtime
+COPY --from=caddy-builder /usr/bin/caddy /usr/bin/caddy

@@ -10,8 +10,8 @@ services:
     environment:
       NODE_ENV: production
       PORT: "8787"
-      # Derive from DOMAIN so an old localhost setting cannot leak into QR links.
-      PUBLIC_BASE_URL: https://${DOMAIN:-photobooth-jepara.duckdns.org}
+      # QR links must include :8443 because standard 443 belongs to another service.
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-https://photobooth-jepara.duckdns.org:8443}
       GEMINI_API_KEY: ${GEMINI_API_KEY:?Isi GEMINI_API_KEY di .env sebelum deploy}
       GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.5-flash-image}
       MAX_UPLOAD_MB: "8"
@@ -45,14 +45,17 @@ services:
         max-file: "3"
 
   caddy:
-    image: caddy:2-alpine
+    build:
+      context: .
+      target: caddy-runtime
     restart: unless-stopped
     environment:
       DOMAIN: ${DOMAIN:-photobooth-jepara.duckdns.org}
+      DUCKDNS_API_TOKEN: ${DUCKDNS_API_TOKEN:?Isi DUCKDNS_API_TOKEN dari DuckDNS di .env}
     ports:
-      # Host port 80 belongs to another VPS service; expose Caddy HTTP on 8080.
+      # Ports 80/443 belong to another VPS service. Use HTTPS on 8443 with DNS-01.
       - "${HTTP_PORT:-8080}:80"
-      - "${HTTPS_PORT:-443}:443"
+      - "${HTTPS_PORT:-8443}:443"
     volumes:
       - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
