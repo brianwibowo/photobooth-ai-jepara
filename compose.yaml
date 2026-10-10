@@ -50,8 +50,9 @@ services:
     environment:
       DOMAIN: ${DOMAIN:-photobooth-jepara.duckdns.org}
     ports:
-      - "80:80"
-      - "443:443"
+      # Host port 80 belongs to another VPS service; expose Caddy HTTP on 8080.
+      - "${HTTP_PORT:-8080}:80"
+      - "${HTTPS_PORT:-443}:443"
     volumes:
       - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data

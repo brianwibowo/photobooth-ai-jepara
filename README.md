@@ -42,8 +42,11 @@ docker compose ps
 docker compose logs --tail=50 caddy
 ```
 
-Pastikan TCP 80/443 terbuka di firewall VPS/provider dan tidak digunakan layanan lain.
-Caddy mengurus sertifikat serta redirect HTTP ke HTTPS; QR memakai domain yang sama.
+Port host HTTP default adalah 8080 karena port 80 VPS sudah dipakai layanan lain;
+HTTPS tetap di 443 sehingga QR dan akses utama tetap memakai domain yang sama.
+Pastikan TCP 443 (dan 8080 bila ingin mengakses endpoint HTTP langsung) diizinkan.
+Jika ingin redirect dari HTTP port 80 juga, arahkan service lama pada port 80 ke
+Caddy atau atur reverse proxy untuk domain ini.
 Database dan foto berada di named volume `photobooth-jepara_photobooth_data`,
 sehingga tetap ada saat container diperbarui. Jangan jalankan `docker compose down -v`
 jika ingin mempertahankan data.

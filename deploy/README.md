@@ -1,7 +1,9 @@
 # Deploy ke VPS dengan Docker
 
 Konfigurasi ini untuk satu VPS dengan RAM 2 GB, satu instance aplikasi, dan domain
-`photobooth-jepara.duckdns.org` yang diarahkan ke `139.190.100.249`.
+`photobooth-jepara.duckdns.org` yang diarahkan ke `139.190.100.249`. Port 80 pada
+VPS ini sudah dipakai service lain, sehingga stack ini memakai host port **8080**
+untuk HTTP dan tetap memakai host port **443** untuk HTTPS.
 
 ## 1. Persiapan VPS
 
@@ -54,18 +56,20 @@ getent ahostsv4 photobooth-jepara.duckdns.org
 
 Hasil IPv4 harus mengarah ke `139.190.100.249`. Jika ada record AAAA, record itu
 harus menuju IPv6 VPS yang benar atau dihapus dari konfigurasi DuckDNS.
-Izinkan TCP **80 dan 443** di firewall provider dan firewall VPS. Pertahankan akses
-port SSH yang saat ini dipakai. Bila UFW sudah aktif:
+Izinkan TCP **443** di firewall provider dan firewall VPS. Port 8080 hanya perlu
+dibuka jika ingin mengakses HTTP alternatif secara langsung. Pertahankan akses port
+SSH yang saat ini dipakai. Bila UFW sudah aktif:
 
 ```bash
-sudo ufw allow 80/tcp
 sudo ufw allow 443/tcp
-sudo ss -ltnp '( sport = :80 or sport = :443 )'
+sudo ufw allow 8080/tcp
+sudo ss -ltnp '( sport = :80 or sport = :443 or sport = :8080 )'
 ```
 
-Port 80/443 harus kosong untuk Caddy. Jika sudah ada Nginx, Apache, atau proxy lain,
-sesuaikan layanan itu sebelum memakai Compose ini; jangan menghentikan layanan
-website lain tanpa memeriksa penggunaannya. VPS juga memerlukan akses keluar
+Port 443 harus kosong untuk Caddy. Port 80 boleh tetap dipakai service lama. Jika
+service lama juga memakai 443, pilih `HTTPS_PORT` lain dan gunakan reverse proxy
+yang sudah ada untuk meneruskan domain ini ke port tersebut; jangan menghentikan
+layanan lain tanpa memeriksa penggunaannya. VPS juga memerlukan akses keluar
 HTTPS ke registry image, npm, layanan sertifikat, dan API Gemini.
 
 ## 2. Clone dan isi konfigurasi
@@ -79,7 +83,8 @@ nano .env
 ```
 
 Isi `GEMINI_API_KEY` dengan key yang bisa mengakses Gemini image generation.
-Biarkan `DOMAIN=photobooth-jepara.duckdns.org`. Default Docker menggunakan
+Biarkan `DOMAIN=photobooth-jepara.duckdns.org`, `HTTP_PORT=8080`, dan
+`HTTPS_PORT=443`. Default Docker menggunakan
 `gemini-2.5-flash-image`; Anda bisa mengganti `GEMINI_MODEL` dengan model image yang
 aktif pada akun Anda, lihat [daftar model image Google](https://ai.google.dev/gemini-api/docs/image-generation).
 API key hanya masuk ke environment backend saat runtime; tidak disalin ke image
@@ -110,7 +115,11 @@ ruang untuk OS pada VPS 2 GB, tetapi bukan jaminan kapasitas untuk banyak genera
 bersamaan. Gunakan satu instance aplikasi untuk SQLite lokal.
 
 Setelah aplikasi `healthy`, Caddy mulai mengurus HTTPS dan memperbarui sertifikat
-otomatis. Sertifikat memerlukan DNS serta port yang benar. Lihat
+otomatis. Sertifikat memerlukan DNS serta port 443 yang benar. Karena port 80
+dipakai service lain, Caddy mengandalkan TLS-ALPN pada port 443 untuk validasi;
+jika log Caddy menunjukkan validasi HTTP challenge gagal, service lama pada port 80
+harus meneruskan challenge domain ini ke Caddy, atau gunakan DNS challenge.
+Lihat
 [persyaratan HTTPS Caddy](https://caddyserver.com/docs/automatic-https).
 
 ```bash
@@ -184,7 +193,8 @@ tempat privat. Volume sertifikat tetap dipertahankan saat update normal.
 
 ## Troubleshooting
 
-- **Caddy gagal bind:** cek proses pada port 80/443 dengan `ss`.
+- **Caddy gagal bind:** cek proses pada port 443/8080 dengan `ss`; port 80 memang
+  boleh dipakai service lama.
 - **HTTPS belum tersedia:** cek DNS A/AAAA, firewall provider/VPS, dan log Caddy.
   Hindari menghapus volume sertifikat berulang kali karena penerbit menerapkan
   batas permintaan sertifikat.
