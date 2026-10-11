@@ -10,11 +10,14 @@ services:
     environment:
       NODE_ENV: production
       PORT: "8787"
-      # QR links must include :8443 because standard 443 belongs to another service.
+      # QR links must be the externally reachable URL (including :8443 here).
+      # Keep this in sync with HTTPS_PORT and any upstream reverse proxy.
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-https://photobooth-jepara.duckdns.org:8443}
       GEMINI_API_KEY: ${GEMINI_API_KEY:?Isi GEMINI_API_KEY di .env sebelum deploy}
-      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-nano-banana-2.1}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.5-flash-image}
       ALLOW_LOCAL_FALLBACK: ${ALLOW_LOCAL_FALLBACK:-false}
+      # Optional museum export endpoint; keep the token only in the VPS .env.
+      ADMIN_TOKEN: ${ADMIN_TOKEN:-}
       MAX_UPLOAD_MB: "8"
       NODE_OPTIONS: --max-old-space-size=512
       MALLOC_ARENA_MAX: "2"
@@ -52,6 +55,9 @@ services:
     restart: unless-stopped
     environment:
       DOMAIN: ${DOMAIN:-photobooth-jepara.duckdns.org}
+      # The host port is not visible inside the container. Caddy needs it to
+      # emit a redirect that reaches this stack instead of the service on 443.
+      PUBLIC_HTTPS_PORT: ${HTTPS_PORT:-8443}
       DUCKDNS_API_TOKEN: ${DUCKDNS_API_TOKEN:?Isi DUCKDNS_API_TOKEN dari DuckDNS di .env}
     ports:
       # Ports 80/443 belong to another VPS service. Use HTTPS on 8443 with DNS-01.

@@ -1,3 +1,15 @@
+# Docker maps host port 8080 to this listener's port 80. Disable Caddy's
+# automatic redirect because it would target the host's standard :443, which
+# belongs to another service. This explicit redirect preserves the URI and
+# sends clients to this stack's public HTTPS port.
+{
+    auto_https disable_redirects
+}
+
+http://{$DOMAIN:photobooth-jepara.duckdns.org} {
+    redir https://{$DOMAIN:photobooth-jepara.duckdns.org}:{$PUBLIC_HTTPS_PORT}{uri} 308
+}
+
 {$DOMAIN:photobooth-jepara.duckdns.org} {
     # DNS-01 avoids ports 80/443, which are already owned by another VPS service.
     # DUCKDNS_API_TOKEN is injected by Compose and never stored in this file.

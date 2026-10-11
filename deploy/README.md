@@ -85,7 +85,7 @@ Isi `GEMINI_API_KEY` dengan key yang bisa mengakses Gemini image generation.
 Biarkan `DOMAIN=photobooth-jepara.duckdns.org`, `HTTP_PORT=8080`,
 `HTTPS_PORT=8443`, `PUBLIC_BASE_URL=https://photobooth-jepara.duckdns.org:8443`,
 dan `ALLOW_LOCAL_FALLBACK=false`. Isi `DUCKDNS_API_TOKEN` dengan token yang terlihat
-di akun DuckDNS. Default Docker menggunakan `gemini-nano-banana-2.1`; Anda bisa
+di akun DuckDNS. Default Docker menggunakan `gemini-2.5-flash-image`; Anda bisa
 mengganti `GEMINI_MODEL` dengan model image yang
 aktif pada akun Anda, lihat [daftar model image Google](https://ai.google.dev/gemini-api/docs/image-generation).
 API key hanya masuk ke environment backend saat runtime; tidak disalin ke image
@@ -93,9 +93,14 @@ atau JavaScript frontend. `.dockerignore` juga mengecualikan foto pengunjung,
 SQLite lokal, serta seluruh folder referensi asli yang besar dari build context.
 
 Jika folder repo sudah ada, gunakan `git pull --ff-only` dari folder tersebut dan
-edit `.env` yang ada; jangan menimpa key yang sudah diisi. Compose sengaja menghitung
-URL QR dari `DOMAIN`, sehingga `PUBLIC_BASE_URL=http://localhost:8787` milik setup
-lokal tidak mengganggu deploy.
+edit `.env` yang ada; jangan menimpa key yang sudah diisi. `PUBLIC_BASE_URL` adalah
+sumber URL QR. Pastikan nilainya adalah URL yang benar-benar
+bisa dibuka pengunjung, termasuk `:8443` pada konfigurasi ini; Compose tidak dapat
+menebak URL publik dari `DOMAIN` bila ada port alternatif atau reverse proxy.
+Jika museum memerlukan ekspor buku tamu, isi `ADMIN_TOKEN` dengan nilai acak yang
+panjang (contoh: `openssl rand -hex 32`). Endpoint itu tidak dibuka oleh frontend;
+gunakan header `Authorization: Bearer <token>` atau `X-Admin-Token` dari kanal admin
+yang aman. Biarkan kosong bila ekspor belum diperlukan.
 
 ## 3. Build dan jalankan
 
@@ -123,6 +128,8 @@ Browser tetap menganggapnya HTTPS sehingga izin kamera dapat digunakan. Lihat
 
 ```bash
 curl -fsS https://photobooth-jepara.duckdns.org:8443/api/health
+# Optional: verify that the alternate HTTP listener points to this stack's port.
+curl -sSI http://photobooth-jepara.duckdns.org:8080/api/health | grep -i '^location:'
 ```
 
 Buka **https://photobooth-jepara.duckdns.org:8443**. Gunakan URL HTTPS ini pada kiosk
@@ -158,8 +165,9 @@ docker compose up -d
 `restart: unless-stopped` menghidupkan kembali layanan yang crash atau ikut boot
 Docker setelah restart VPS. Container yang sengaja dihentikan perlu dijalankan
 kembali secara manual. Healthcheck tidak otomatis merestart proses yang hang.
-Log Docker dirotasi maksimal 3 × 10 MB per container. Foto tidak otomatis dihapus;
-pantau ruang disk secara berkala.
+Log Docker dirotasi maksimal 3 × 10 MB per container. Master dan thumbnail hasil
+yang melewati retensi tujuh hari dibersihkan otomatis setiap enam jam; tetap
+pantau ruang disk dan buat backup bila arsip perlu dipertahankan.
 
 Jangan gunakan **`docker compose down -v`** kecuali memang ingin menghapus volume,
 termasuk seluruh buku tamu, foto, dan sertifikat. Nama project tetap
@@ -206,7 +214,7 @@ tempat privat. Volume sertifikat tetap dipertahankan saat update normal.
   volume dapat ditulis oleh UID 1000. Named volume baru mengambil ownership dari
   direktori image; bind mount buatan sendiri memerlukan izin yang sesuai.
 - **Foto AI gagal dibuat:** cek key, model, kuota/billing Gemini, dan koneksi keluar.
-  Jalankan `docker compose logs --tail=100 app` dan cari detail `Gemini Interactions
+  Jalankan `docker compose logs --tail=100 app` dan cari detail `Gemini generateContent
   API`. Jika muncul `429 ... limit: 0 requests per day on Free Tier`, key tersebut
   memang belum memiliki kuota image generation API. Aktifkan billing/quota pada
   project Google AI Studio atau gunakan key dari project yang sudah diizinkan;

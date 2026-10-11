@@ -8,7 +8,7 @@ A lightweight, museum-first photobooth web app for a 2 GB VPS. Visitors select a
 - Express: small server/API layer that keeps the Gemini secret off the client.
 - SQLite: local metadata and guest book storage, suitable for a single museum kiosk/VPS.
 - Sharp: converts input/output to WebP and creates gallery thumbnails.
-- Gemini image generation: configurable through `GEMINI_MODEL`, using the official Interactions image endpoint. Production fallback is disabled by default so a branded overlay can never be mistaken for a Gemini result. The Gemini API project must have image-generation quota; a Free Tier `limit: 0` response is a provider quota issue.
+- Gemini image generation: configurable through `GEMINI_MODEL`, using the official Gemini `generateContent` image endpoint. The Docker default is `gemini-2.5-flash-image`; production fallback is disabled by default so a branded overlay can never be mistaken for a Gemini result. The Gemini API project must have image-generation quota; a Free Tier `limit: 0` response is a provider quota issue.
 
 ## Run locally
 
@@ -44,7 +44,7 @@ docker compose logs --tail=50 caddy
 
 Port 80 dan 443 VPS sudah dipakai layanan lain. Stack ini memakai HTTP `8080` dan
 HTTPS `8443` dengan DNS-01 DuckDNS. URL publik default menjadi
-`https://photobooth-jepara.duckdns.org:8443`; QR memakai URL tersebut.
+`https://photobooth-jepara.duckdns.org:8443`; QR memakai `PUBLIC_BASE_URL` tersebut.
 Isi `DUCKDNS_API_TOKEN` di `.env` agar Caddy dapat menerbitkan sertifikat valid
 tanpa membutuhkan port 80/443. Jika service lama bisa menjadi reverse proxy untuk
 domain ini, `PUBLIC_BASE_URL` dapat diubah menjadi URL HTTPS standar tanpa `:8443`.
