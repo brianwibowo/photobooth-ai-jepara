@@ -14,6 +14,11 @@ import { characters, scenes, getCharacter, getScene } from '../src/data.js'
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const root = path.resolve(__dirname, '..')
 const DEFAULT_MODEL = 'gemini-2.5-flash-image'
+const IMAGE_MODEL_CHAIN = [
+  'gemini-3.1-flash-image',
+  'gemini-3-pro-image',
+  'gemini-2.5-flash-image',
+]
 const RESULT_TTL_MS = 7 * 24 * 60 * 60 * 1000
 const MAX_PEOPLE = 3
 const DEFAULT_MAX_UPLOAD_MB = 8
@@ -164,10 +169,29 @@ export function createApp(options = {}) {
     return { data: optimized.toString('base64'), mimeType: 'image/jpeg' }
   }
 
+  async function callGeminiModel({ model, apiKey, inputParts }) {
+    const response = await fetchImpl(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
+      method: 'POST', headers: { 'content-type': 'application/json', 'x-goog-api-key': apiKey },
+      body: JSON.stringify({ contents: [{ role: 'user', parts: inputParts }], generationConfig: { responseModalities: ['TEXT', 'IMAGE'] } }),
+      signal: AbortSignal.timeout(timeoutMs),
+    })
+    const raw = await response.text()
+    let payload = {}
+    try { payload = JSON.parse(raw) } catch { /* handled below */ }
+    if (response.status === 429) {
+      const retryDelay = payload?.error?.details?.find((d) => d['@type']?.includes('RetryInfo'))?.retryDelay
+      throw Object.assign(new Error(`quota exceeded for ${model}`), { code: 'GEMINI_QUOTA_EXCEEDED', retryDelay, quotaError: true })
+    }
+    if (!response.ok) throw Object.assign(new Error(`provider request failed (${response.status})`), { code: `GEMINI_HTTP_${response.status}` })
+    const image = getOutputImage(payload)
+    if (!image) throw Object.assign(new Error('provider returned no image'), { code: 'GEMINI_NO_IMAGE' })
+    return Buffer.from(image, 'base64')
+  }
+
   async function generateWithGemini({ photoBuffer, sceneId, characterId, people }) {
     const apiKey = process.env.GEMINI_API_KEY
     if (!apiKey) throw Object.assign(new Error('missing api key'), { code: 'MISSING_API_KEY' })
-    const model = process.env.GEMINI_MODEL || DEFAULT_MODEL
+    const configuredModel = process.env.GEMINI_MODEL || DEFAULT_MODEL
     const scene = sceneMap[sceneId] || getScene(sceneId)
     const character = characterMap[characterId] || getCharacter(characterId)
     const visitor = await sharp(photoBuffer).rotate().resize({ width: 1536, withoutEnlargement: true }).jpeg({ quality: 88 }).toBuffer()
@@ -192,18 +216,22 @@ export function createApp(options = {}) {
       const bg = await imageData(path.join('public', scenePath))
       inputParts.push({ inline_data: { mime_type: bg.mimeType, data: bg.data } })
     }
-    const response = await fetchImpl(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
-      method: 'POST', headers: { 'content-type': 'application/json', 'x-goog-api-key': apiKey },
-      body: JSON.stringify({ contents: [{ role: 'user', parts: inputParts }], generationConfig: { responseModalities: ['TEXT', 'IMAGE'] } }),
-      signal: AbortSignal.timeout(timeoutMs),
-    })
-    const raw = await response.text()
-    let payload = {}
-    try { payload = JSON.parse(raw) } catch { /* handled below */ }
-    if (!response.ok) throw Object.assign(new Error('provider request failed'), { code: `GEMINI_HTTP_${response.status}` })
-    const image = getOutputImage(payload)
-    if (!image) throw Object.assign(new Error('provider returned no image'), { code: 'GEMINI_NO_IMAGE' })
-    return Buffer.from(image, 'base64')
+    // Build a model chain: try configured model first, then fallbacks.
+    const modelsToTry = [configuredModel, ...IMAGE_MODEL_CHAIN.filter((m) => m !== configuredModel)]
+    let lastError = null
+    for (const model of modelsToTry) {
+      try {
+        console.log(`Trying image model: ${model}`)
+        return await callGeminiModel({ model, apiKey, inputParts })
+      } catch (error) {
+        console.warn(`Model ${model} failed:`, error?.code || error?.message)
+        lastError = error
+        // If quota exceeded, try next model; other errors are fatal.
+        if (!error.quotaError) throw error
+      }
+    }
+    // All models exhausted quota
+    throw lastError || Object.assign(new Error('all image models quota exceeded'), { code: 'GEMINI_QUOTA_EXCEEDED', quotaError: true })
   }
 
   async function fallbackImage({ photoBuffer }) {
@@ -276,7 +304,11 @@ export function createApp(options = {}) {
       let output; let provider = 'gemini'
       try { output = await (options.generateWithGemini || generateWithGemini)({ photoBuffer: req.file.buffer, sceneId, characterId, people }) }
       catch (error) {
-        console.error('Gemini generation failed', error?.code || 'UNKNOWN')
+        console.error('Gemini generation failed', error?.code || 'UNKNOWN', error?.message)
+        if (error?.quotaError) {
+          const retryHint = error.retryDelay ? ` Coba lagi dalam ${Math.ceil(Number.parseInt(error.retryDelay, 10) / 3600)} jam.` : ''
+          return res.status(429).json({ error: `Kuota API Gemini habis untuk semua model image.${retryHint} Aktifkan billing di Google Cloud atau gunakan project baru.`, code: 'GEMINI_QUOTA_EXCEEDED', retryable: true })
+        }
         if (process.env.NODE_ENV !== 'production' && process.env.ALLOW_LOCAL_FALLBACK === 'true') { output = await fallbackImage({ photoBuffer: req.file.buffer }); provider = 'fallback' }
         else return res.status(502).json({ error: 'Gemini belum berhasil membuat gambar. Periksa API key, model, dan kuota lalu coba lagi.', code: 'GEMINI_GENERATION_FAILED', retryable: true })
       }
