@@ -4,7 +4,7 @@ Tanggal pemeriksaan: 14 Oktober 2026.
 
 ## Kesimpulan
 
-Alur pengunjung, validasi input, fallback kamera, privasi hasil, dan layout
+Alur pengunjung, validasi input, kamera wajib aktif, privasi hasil, dan layout
 kiosk sudah melewati smoke test lokal. Aplikasi masih belum dapat dinyatakan
 siap produksi penuh karena akses Gemini image generation pada project VPS
 belum terbukti berhasil. Penerimaan akhir juga membutuhkan satu tes kamera dan
@@ -17,8 +17,8 @@ QR dari perangkat nyata setelah deploy.
 | HP-01 | Beranda → pilih adegan → pilih tokoh → jumlah orang → data tamu | Lulus. State berpindah sesuai urutan PRD. |
 | HP-02 | Satu, dua, dan tiga tamu dengan nama serta gender masing-masing | Lulus. Form dibuat sesuai jumlah dan payload divalidasi server. |
 | HP-03 | Masuk ke kamera | Lulus secara UI. `getUserMedia()` dipanggil saat layar kamera mount; stream dihentikan saat keluar. |
-| HP-04 | Izin kamera tidak tersedia, ditolak, atau prompt menggantung | Lulus setelah perbaikan. Pesan fallback muncul setelah 8 detik dan upload foto tetap tersedia. |
-| HP-05 | Upload WebP → konfirmasi | Lulus. Preview, adegan, tokoh, dan data tamu tetap tampil. |
+| HP-04 | Izin kamera tidak tersedia, ditolak, atau prompt menggantung | Lulus secara UI. Pesan ramah muncul setelah 8 detik; kamera wajib aktif dan pengunjung diarahkan mengaktifkan ulang kamera. |
+| HP-05 | Capture kamera → konfirmasi | Lulus. Hasil capture JPEG sementara, preview, adegan, tokoh, dan data tamu tetap tampil; tidak ada jalur upload file di kiosk. |
 | HP-06 | Generate gagal | Lulus. Foto dan form dipertahankan, layar kembali ke konfirmasi, tombol berubah menjadi “Coba lagi”. |
 | HP-07 | Mulai sesi baru setelah gagal/selesai | Lulus. State, kamera, request generate, dan object URL foto dibersihkan. |
 | HP-08 | Galeri berhasil/gagal | Lulus. Modal dapat dibuka/tutup; error API ditampilkan sebagai pesan lokal dengan retry. |
@@ -31,13 +31,13 @@ QR dari perangkat nyata setelah deploy.
 | --- | --- | --- |
 | NG-01 | Nama atau gender tamu kosong | UI menahan perpindahan dan menampilkan pesan validasi. |
 | NG-02 | Jumlah tamu tidak sama dengan array tamu | API `400 GUESTS_INVALID`. |
-| NG-03 | MIME bukan JPG/PNG/WebP | API `415 UPLOAD_INVALID`. |
+| NG-03 | Payload foto tidak valid atau MIME bukan gambar | API `415 UPLOAD_INVALID`/`400 PHOTO_INVALID`; UI kiosk tidak menyediakan upload file. |
 | NG-04 | Foto tidak ada/rusak/resolusi melewati batas | API menolak dengan error yang aman dan tidak menyimpan hasil. |
 | NG-05 | Adegan atau tokoh tidak cocok | API `400 CONFIG_INVALID`. |
 | NG-06 | Gemini quota habis | API `429 GEMINI_QUOTA_EXCEEDED`, retryable, dengan petunjuk waktu retry. |
 | NG-07 | Provider gagal selain quota | API `502 GEMINI_GENERATION_FAILED`; UI kembali ke konfirmasi. |
 | NG-08 | Galeri/API mengembalikan HTML atau JSON invalid | Modal menampilkan “Galeri tidak dapat dimuat. Coba lagi.”, bukan error browser mentah. |
-| NG-09 | Token download tidak ada atau kedaluwarsa | API `404`/`410`; master tetap private dan tidak muncul di galeri. |
+| NG-09 | Token download tidak ada atau kedaluwarsa | API `404`/`410`; token berhenti bekerja setelah 60 detik, sementara master PNG, thumbnail, dan record tetap tersimpan sampai masa retensi. |
 | NG-10 | Hasil database gagal disimpan setelah file ditulis | File master/thumbnail sementara dibersihkan untuk mencegah orphan disk. |
 
 ## Bukti pemeriksaan
@@ -45,7 +45,7 @@ QR dari perangkat nyata setelah deploy.
 - `node --check server/index.js` berhasil.
 - `npm run build` berhasil dengan Vite.
 - Smoke test HTTP dengan generator mock menghasilkan `200`, `provider: gemini`,
-  URL download WebP private, dan item galeri hanya berisi `thumbnailUrl`.
+  URL download PNG private, token TTL 60 detik, dan item galeri hanya berisi `thumbnailUrl`.
 - Smoke test invalid MIME menghasilkan `415 UPLOAD_INVALID`.
 - Smoke test jumlah tamu tidak sesuai menghasilkan `400 GUESTS_INVALID`.
 - Smoke test quota menghasilkan `429` dengan pesan retry `30 detik` yang benar.
@@ -53,7 +53,7 @@ QR dari perangkat nyata setelah deploy.
   persistence gagal.
 - Semua asset publik yang dipakai aplikasi sudah WebP; PNG/JPG redundan telah
   dihapus.
-- Browser lokal diuji dari beranda sampai konfirmasi, fallback kamera, modal
+- Browser lokal diuji dari beranda sampai konfirmasi, penanganan kamera wajib, modal
   galeri, retry, dan reset sesi.
 
 ## Temuan yang masih terbuka
@@ -61,7 +61,7 @@ QR dari perangkat nyata setelah deploy.
 1. **P0 — Gemini end-to-end.** Probe provider sebelumnya mengembalikan `429`
    dengan quota Free Tier image `limit: 0`. Server kini memakai endpoint resmi
    `generateContent` dan hanya model terkonfigurasi (default
-   `gemini-2.5-flash-image`), tetapi project VPS harus memiliki billing/quota
+   `gemini-nano-banana-2.1`), tetapi project VPS harus memiliki billing/quota
    image aktif. Key yang pernah ditempel di chat wajib dirotasi.
 2. **P1 — Buku tamu.** SQLite dan export CSV ber-token tersedia. Integrasi
    Google Sheets dan panel admin penuh belum dibuat.

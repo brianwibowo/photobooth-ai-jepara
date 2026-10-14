@@ -1,14 +1,14 @@
 # Photobooth AI Museum R.A. Kartini
 
-A lightweight, museum-first photobooth web app for a 2 GB VPS. Visitors select a scene, choose the group size, enter the guest book details, capture a photo, and receive an AI-generated WebP result with a private QR download link.
+A lightweight, museum-first photobooth web app for a 2 GB VPS. Visitors select a scene, choose the group size, enter the guest book details, capture a photo, and receive an AI-generated PNG result with a private QR download link.
 
 ## Stack
 
 - React + Vite: responsive single-page experience with no heavy UI framework.
 - Express: small server/API layer that keeps the Gemini secret off the client.
 - SQLite: local metadata and guest book storage, suitable for a single museum kiosk/VPS.
-- Sharp: converts input/output to WebP and creates gallery thumbnails.
-- Gemini image generation: configurable through `GEMINI_MODEL`, using the official Gemini `generateContent` image endpoint. The Docker default is `gemini-2.5-flash-image`; production fallback is disabled by default so a branded overlay can never be mistaken for a Gemini result. The Gemini API project must have image-generation quota; a Free Tier `limit: 0` response is a provider quota issue.
+- Sharp: validates photos, keeps generated masters as PNG, and creates lightweight WebP gallery thumbnails.
+- Gemini image generation: configurable through `GEMINI_MODEL`, using the official Gemini `generateContent` image endpoint. The Docker default is `gemini-nano-banana-2.1`; production fallback is disabled by default so a branded overlay can never be mistaken for a Gemini result. The Gemini API project must have image-generation quota; a Free Tier `limit: 0` response is a provider quota issue.
 
 ## Run locally
 
@@ -66,7 +66,7 @@ Put Nginx/Caddy in front for HTTPS. The API stores generated files in `data/gene
 
 - `GET /api/health`: readiness and provider mode.
 - `GET /api/gallery?limit=12`: newest public thumbnails only (max 20).
-- `POST /api/generate`: multipart upload with `photo`, `sceneId`, `characterId`, `people`, and `guests`.
+- `POST /api/generate`: internal multipart camera capture with `photo`, `sceneId`, `characterId`, `people`, and `guests`; the kiosk does not expose a file-upload control.
 - `GET /api/download/:token`: token-based private result access used by the QR.
 
-The gallery response intentionally contains only image URLs and opaque IDs; guest names, gender, scene, and timestamps remain server-side. Generated masters and thumbnails are WebP to reduce bandwidth and disk usage.
+The gallery response intentionally contains only image URLs; guest names, gender, scene, and timestamps remain server-side. A QR/download token is valid for 60 seconds, while the PNG master, WebP thumbnail, and database record remain on the VPS for the seven-day retention window used by the gallery and cleanup job. Set `RESULT_RETENTION_MS=0` when the museum wants indefinite retention and will perform manual storage cleanup.

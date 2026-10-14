@@ -14,8 +14,13 @@ services:
       # Keep this in sync with HTTPS_PORT and any upstream reverse proxy.
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-https://photobooth-jepara.duckdns.org:8443}
       GEMINI_API_KEY: ${GEMINI_API_KEY:?Isi GEMINI_API_KEY di .env sebelum deploy}
-      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.5-flash-image}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-nano-banana-2.1}
       ALLOW_LOCAL_FALLBACK: ${ALLOW_LOCAL_FALLBACK:-false}
+      # QR/download token lifetime (milliseconds). Generated files remain for
+      # RESULT_RETENTION_MS and are independent from this short token TTL.
+      DOWNLOAD_TTL_MS: ${DOWNLOAD_TTL_MS:-60000}
+      # Set to 0 to keep generated PNGs/DB records until manual cleanup.
+      RESULT_RETENTION_MS: ${RESULT_RETENTION_MS:-604800000}
       # Optional museum export endpoint; keep the token only in the VPS .env.
       ADMIN_TOKEN: ${ADMIN_TOKEN:-}
       MAX_UPLOAD_MB: "8"

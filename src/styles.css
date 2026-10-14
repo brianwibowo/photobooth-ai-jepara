@@ -335,6 +335,77 @@ h1 em, h2 em {
   flex-direction: column;
 }
 
+/* Kiosk desktop flow: keep the instruction column beside the interactive
+   surface so visitors never have to scroll between steps. */
+.horizontal-flow {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.72fr) minmax(0, 1.7fr);
+  grid-template-rows: minmax(0, 1fr) auto;
+  align-content: center;
+  align-items: center;
+  column-gap: clamp(28px, 5vw, 76px);
+}
+
+.horizontal-flow > .flow-heading {
+  grid-column: 1;
+  grid-row: 1;
+  align-self: center;
+  margin: 0;
+}
+
+.horizontal-flow > .scene-grid,
+.horizontal-flow > .character-grid,
+.horizontal-flow > .people-grid,
+.horizontal-flow > .guest-form,
+.horizontal-flow > .camera-stage,
+.horizontal-flow > .confirm-layout {
+  grid-column: 2;
+  grid-row: 1;
+  align-self: center;
+  width: 100%;
+}
+
+.horizontal-flow > .scene-grid,
+.horizontal-flow > .character-grid,
+.horizontal-flow > .people-grid {
+  max-height: min(58vh, 470px);
+}
+
+.horizontal-flow > .back-button {
+  grid-column: 1;
+  grid-row: 2;
+  align-self: end;
+  margin-top: clamp(14px, 2vh, 24px);
+}
+
+.flow-footer {
+  grid-column: 2;
+  grid-row: 2;
+  width: 100%;
+  align-self: end;
+}
+
+.flow-footer .error-message {
+  margin-top: 10px;
+}
+
+.horizontal-flow .flow-actions {
+  margin-top: clamp(12px, 1.6vh, 18px);
+}
+
+.horizontal-flow .camera-actions {
+  margin-top: clamp(12px, 1.6vh, 18px);
+}
+
+.horizontal-flow .camera-stage {
+  max-width: none;
+  height: min(52vh, 410px);
+}
+
+.horizontal-flow .confirm-layout {
+  max-height: min(58vh, 430px);
+}
+
 .flow.narrow {
   max-width: 840px;
 }
@@ -1281,6 +1352,29 @@ h1 em, h2 em {
   .screen-content {
     padding: 24px 6vw 48px;
     justify-content: flex-start;
+  }
+  .horizontal-flow {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0;
+  }
+  .horizontal-flow > .flow-heading,
+  .horizontal-flow > .scene-grid,
+  .horizontal-flow > .character-grid,
+  .horizontal-flow > .people-grid,
+  .horizontal-flow > .guest-form,
+  .horizontal-flow > .camera-stage,
+  .horizontal-flow > .confirm-layout,
+  .horizontal-flow > .flow-footer {
+    width: 100%;
+    max-height: none;
+  }
+  .horizontal-flow > .back-button {
+    margin-top: 18px;
+  }
+  .horizontal-flow .flow-footer {
+    align-self: stretch;
   }
   .home {
     display: flex;

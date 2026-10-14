@@ -13,8 +13,13 @@ import { characters, scenes, getCharacter, getScene } from '../src/data.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const root = path.resolve(__dirname, '..')
-const DEFAULT_MODEL = 'gemini-2.5-flash-image'
-const RESULT_TTL_MS = 7 * 24 * 60 * 60 * 1000
+const DEFAULT_MODEL = 'gemini-nano-banana-2.1'
+// Generated masters remain available to the kiosk/gallery for seven days by
+// default. Set RESULT_RETENTION_MS=0 to keep the archive until an operator
+// removes it. The QR/download token has a much shorter lifetime so a printed
+// or displayed QR code cannot be reused indefinitely.
+const DEFAULT_RESULT_RETENTION_MS = 7 * 24 * 60 * 60 * 1000
+const DEFAULT_DOWNLOAD_TTL_MS = 60 * 1000
 const MAX_PEOPLE = 3
 const DEFAULT_MAX_UPLOAD_MB = 8
 const DEFAULT_MAX_PIXELS = 24_000_000
@@ -56,7 +61,8 @@ function createDatabase(dataDir) {
       provider TEXT NOT NULL DEFAULT 'unknown',
       is_public INTEGER NOT NULL DEFAULT 1,
       created_at TEXT NOT NULL,
-      expires_at TEXT
+      expires_at TEXT,
+      download_expires_at TEXT
     );
     CREATE TABLE IF NOT EXISTS guests (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -68,6 +74,9 @@ function createDatabase(dataDir) {
     );
   `)
   try { db.exec('ALTER TABLE results ADD COLUMN expires_at TEXT') } catch (error) {
+    if (!/duplicate column name/i.test(error.message)) throw error
+  }
+  try { db.exec('ALTER TABLE results ADD COLUMN download_expires_at TEXT') } catch (error) {
     if (!/duplicate column name/i.test(error.message)) throw error
   }
   return db
@@ -100,6 +109,8 @@ export function createApp(options = {}) {
   const minIntervalMs = Number(options.minIntervalMs || process.env.GENERATION_MIN_INTERVAL_MS || 3000)
   const rateWindowMs = Number(options.rateWindowMs || process.env.GENERATION_RATE_WINDOW_MS || 10 * 60 * 1000)
   const rateLimit = Number(options.rateLimit || process.env.GENERATION_RATE_LIMIT || 8)
+  const resultRetentionMs = Number(options.resultRetentionMs ?? process.env.RESULT_RETENTION_MS ?? DEFAULT_RESULT_RETENTION_MS)
+  const downloadTtlMs = Number(options.downloadTtlMs ?? process.env.DOWNLOAD_TTL_MS ?? DEFAULT_DOWNLOAD_TTL_MS)
   const { characterMap, sceneMap } = catalogMaps()
   let active = false
   let queued = 0
@@ -107,9 +118,12 @@ export function createApp(options = {}) {
   const requestHistory = new Map()
 
   async function cleanupExpiredResults() {
-    const cutoff = new Date(Date.now() - RESULT_TTL_MS).toISOString()
+    if (!(resultRetentionMs > 0)) return 0
     const rows = db.prepare('SELECT id, image_file, thumbnail_file, created_at, expires_at FROM results').all()
-      .filter((row) => new Date(row.expires_at || row.created_at || cutoff).getTime() <= Date.now())
+      .filter((row) => {
+        const retentionExpiry = row.expires_at ? new Date(row.expires_at) : new Date(new Date(row.created_at).getTime() + resultRetentionMs)
+        return Number.isFinite(retentionExpiry.getTime()) && retentionExpiry.getTime() <= Date.now()
+      })
     if (!rows.length) return 0
     const remove = db.transaction((expired) => {
       const deleteGuests = db.prepare('DELETE FROM guests WHERE result_id = ?')
@@ -121,14 +135,15 @@ export function createApp(options = {}) {
     })
     remove(rows)
     await Promise.all(rows.flatMap((row) => [row.image_file, row.thumbnail_file]).map(async (file) => {
-      if (!/^[a-zA-Z0-9._-]+(?:-thumb)?\.webp$/.test(file || '')) return
+      if (!/^[a-zA-Z0-9._-]+(?:-thumb)?\.(?:png|webp)$/.test(file || '')) return
       try { await fs.unlink(path.join(generatedDir, file)) } catch (error) { if (error?.code !== 'ENOENT') console.error('Expired file cleanup failed') }
     }))
     return rows.length
   }
 
-  // Results are private for seven days. Reclaim both master and thumbnail
-  // files periodically so a busy kiosk does not fill the VPS disk forever.
+  // Keep generated masters/thumbnails for the retention window. Token expiry
+  // is intentionally independent: a QR can expire after 60 seconds while the
+  // result remains available to the gallery and admin records.
   void cleanupExpiredResults().catch(() => {})
   const cleanupTimer = setInterval(() => { void cleanupExpiredResults().catch(() => {}) }, 6 * 60 * 60 * 1000)
   cleanupTimer.unref?.()
@@ -177,7 +192,7 @@ export function createApp(options = {}) {
   }
 
   async function callGeminiModel({ model, apiKey, inputParts }) {
-    const response = await fetchImpl(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
+    const response = await fetchImpl(`https://generativelanguage.googleapis.com/v1/models/${encodeURIComponent(model)}:generateContent`, {
       method: 'POST', headers: { 'content-type': 'application/json', 'x-goog-api-key': apiKey },
       body: JSON.stringify({ contents: [{ role: 'user', parts: inputParts }], generationConfig: { responseModalities: ['TEXT', 'IMAGE'] } }),
       signal: AbortSignal.timeout(timeoutMs),
@@ -229,7 +244,7 @@ export function createApp(options = {}) {
   }
 
   async function fallbackImage({ photoBuffer }) {
-    return sharp(photoBuffer).rotate().resize({ width: 1600, height: 1200, fit: 'cover' }).webp({ quality: 86 }).toBuffer()
+    return sharp(photoBuffer).rotate().resize({ width: 1600, height: 1200, fit: 'cover' }).png({ compressionLevel: 9, adaptiveFiltering: true }).toBuffer()
   }
 
   async function acquireSlot() {
@@ -264,12 +279,18 @@ export function createApp(options = {}) {
   app.get('/api/gallery', (req, res) => {
     const limit = Math.min(Math.max(Number(req.query.limit) || 12, 1), 20)
     const current = now().toISOString()
-    const rows = db.prepare("SELECT id, thumbnail_file FROM results WHERE is_public = 1 AND provider = 'gemini' AND ((expires_at IS NOT NULL AND expires_at > ?) OR (expires_at IS NULL AND datetime(created_at, '+7 days') > datetime(?))) ORDER BY id DESC LIMIT ?").all(current, current, limit)
+    const query = resultRetentionMs > 0
+      ? "SELECT id, thumbnail_file FROM results WHERE is_public = 1 AND provider = 'gemini' AND ((expires_at IS NOT NULL AND expires_at > ?) OR (expires_at IS NULL AND datetime(created_at, '+7 days') > datetime(?))) ORDER BY id DESC LIMIT ?"
+      : "SELECT id, thumbnail_file FROM results WHERE is_public = 1 AND provider = 'gemini' ORDER BY id DESC LIMIT ?"
+    const rows = resultRetentionMs > 0 ? db.prepare(query).all(current, current, limit) : db.prepare(query).all(limit)
     res.json({ items: rows.map((row) => ({ thumbnailUrl: `/api/gallery/image/${encodeURIComponent(row.thumbnail_file)}` })) })
   })
   app.get('/api/gallery/image/:file', (req, res) => {
     const current = now().toISOString()
-    const row = db.prepare("SELECT thumbnail_file FROM results WHERE thumbnail_file = ? AND is_public = 1 AND provider = 'gemini' AND ((expires_at IS NOT NULL AND expires_at > ?) OR (expires_at IS NULL AND datetime(created_at, '+7 days') > datetime(?)))").get(req.params.file, current, current)
+    const query = resultRetentionMs > 0
+      ? "SELECT thumbnail_file FROM results WHERE thumbnail_file = ? AND is_public = 1 AND provider = 'gemini' AND ((expires_at IS NOT NULL AND expires_at > ?) OR (expires_at IS NULL AND datetime(created_at, '+7 days') > datetime(?)))"
+      : "SELECT thumbnail_file FROM results WHERE thumbnail_file = ? AND is_public = 1 AND provider = 'gemini'"
+    const row = resultRetentionMs > 0 ? db.prepare(query).get(req.params.file, current, current) : db.prepare(query).get(req.params.file)
     if (!row || !/^[a-zA-Z0-9._-]+-thumb\.webp$/.test(row.thumbnail_file)) return res.status(404).send('Gambar tidak ditemukan.')
     res.type('image/webp').set('Cache-Control', 'public, max-age=604800, immutable').sendFile(path.join(generatedDir, row.thumbnail_file))
   })
@@ -315,21 +336,26 @@ export function createApp(options = {}) {
       }
       if (!generatedMeta.width || !generatedMeta.height || generatedMeta.width * generatedMeta.height > maxPixels) return res.status(502).json({ error: 'Hasil Gemini tidak valid.', code: 'OUTPUT_INVALID', retryable: true })
       const token = uniqueToken(); const stem = crypto.randomBytes(16).toString('hex')
-      const imageFile = `${stem}.webp`; const thumbFile = `${stem}-thumb.webp`
-      const master = await sharp(output).rotate().resize({ width: 1800, withoutEnlargement: true }).webp({ quality: 86 }).toBuffer()
+      // Keep the generated result lossless and downloadable as PNG. Gallery
+      // thumbnails remain WebP to keep the public gallery lightweight.
+      const imageFile = `${stem}.png`; const thumbFile = `${stem}-thumb.webp`
+      const master = await sharp(output).rotate().resize({ width: 1800, withoutEnlargement: true }).png({ compressionLevel: 9, adaptiveFiltering: true }).toBuffer()
       const thumb = await sharp(master).resize({ width: 640, withoutEnlargement: true }).webp({ quality: 74 }).toBuffer()
       await fs.writeFile(path.join(generatedDir, imageFile), master); writtenFiles.push(imageFile)
       await fs.writeFile(path.join(generatedDir, thumbFile), thumb); writtenFiles.push(thumbFile)
-      const createdAt = now(); const expiresAt = new Date(createdAt.getTime() + RESULT_TTL_MS).toISOString()
+      const createdAt = now()
+      const expiresAt = resultRetentionMs > 0 ? new Date(createdAt.getTime() + resultRetentionMs).toISOString() : null
+      const downloadExpiresAt = new Date(createdAt.getTime() + downloadTtlMs).toISOString()
       const guests = safeJson(req.body.guests, [])
       const resultId = db.transaction(() => {
-        const result = db.prepare('INSERT INTO results (token,image_file,thumbnail_file,scene_id,character_id,provider,is_public,created_at,expires_at) VALUES (?,?,?,?,?,?,?,?,?)').run(token, imageFile, thumbFile, sceneId, characterId, provider, provider === 'gemini' ? 1 : 0, createdAt.toISOString(), expiresAt)
+        const result = db.prepare('INSERT INTO results (token,image_file,thumbnail_file,scene_id,character_id,provider,is_public,created_at,expires_at,download_expires_at) VALUES (?,?,?,?,?,?,?,?,?,?)').run(token, imageFile, thumbFile, sceneId, characterId, provider, provider === 'gemini' ? 1 : 0, createdAt.toISOString(), expiresAt, downloadExpiresAt)
         const insertGuest = db.prepare('INSERT INTO guests (result_id,name,gender,created_at) VALUES (?,?,?,?)')
         guests.forEach((guest) => insertGuest.run(result.lastInsertRowid, guest.name.trim().slice(0, 80), guest.gender, createdAt.toISOString()))
         return result.lastInsertRowid
       })()
       const downloadUrl = `${publicBaseUrl}/api/download/${token}`
-      return res.json({ id: resultId, imageUrl: `/api/download/${token}`, thumbnailUrl: `/api/gallery/image/${encodeURIComponent(thumbFile)}`, qrUrl: downloadUrl, provider, expiresIn: '7 hari' })
+      const downloadSeconds = Math.max(1, Math.ceil(downloadTtlMs / 1000))
+      return res.json({ id: resultId, imageUrl: `/api/download/${token}`, thumbnailUrl: `/api/gallery/image/${encodeURIComponent(thumbFile)}`, qrUrl: downloadUrl, provider, expiresIn: `${downloadSeconds} detik`, downloadExpiresAt, retentionExpiresAt: expiresAt })
     } catch (error) {
       await Promise.all(writtenFiles.map(async (file) => { try { await fs.unlink(path.join(generatedDir, file)) } catch { /* best effort */ } }))
       console.error('Generation persistence failed', error?.code || 'UNKNOWN')
@@ -338,12 +364,15 @@ export function createApp(options = {}) {
   })
 
   app.get('/api/download/:token', (req, res) => {
-    const row = db.prepare('SELECT image_file, created_at, expires_at FROM results WHERE token = ?').get(req.params.token)
+    const row = db.prepare('SELECT image_file, created_at, expires_at, download_expires_at FROM results WHERE token = ?').get(req.params.token)
     if (!row) return res.status(404).send('Tautan foto tidak ditemukan.')
-    const expiresAt = row.expires_at ? new Date(row.expires_at) : new Date(new Date(row.created_at).getTime() + RESULT_TTL_MS)
+    // New rows use a 60-second token TTL. Legacy rows without the column keep
+    // their old retention expiry so existing links do not break on migration.
+    const expiresAt = row.download_expires_at ? new Date(row.download_expires_at) : (row.expires_at ? new Date(row.expires_at) : new Date(new Date(row.created_at).getTime() + DEFAULT_DOWNLOAD_TTL_MS))
     if (!Number.isFinite(expiresAt.getTime()) || expiresAt <= now()) return res.status(410).send('Tautan foto sudah kedaluwarsa.')
-    if (!/^[a-zA-Z0-9._-]+\.webp$/.test(row.image_file)) return res.status(404).send('Gambar tidak ditemukan.')
-    res.type('image/webp').set('Content-Disposition', 'inline; filename="kisah-kartini.webp"').set('Cache-Control', 'private, no-store').sendFile(path.join(generatedDir, row.image_file))
+    if (!/^[a-zA-Z0-9._-]+\.(?:png|webp)$/.test(row.image_file)) return res.status(404).send('Gambar tidak ditemukan.')
+    const extension = path.extname(row.image_file).toLowerCase() === '.png' ? 'png' : 'webp'
+    res.type(extension).set('Content-Disposition', `inline; filename="kisah-kartini.${extension}"`).set('Cache-Control', 'private, no-store').sendFile(path.join(generatedDir, row.image_file))
   })
 
   app.get('/api/admin/guests.csv', (req, res) => {

@@ -85,7 +85,7 @@ Isi `GEMINI_API_KEY` dengan key yang bisa mengakses Gemini image generation.
 Biarkan `DOMAIN=photobooth-jepara.duckdns.org`, `HTTP_PORT=8080`,
 `HTTPS_PORT=8443`, `PUBLIC_BASE_URL=https://photobooth-jepara.duckdns.org:8443`,
 dan `ALLOW_LOCAL_FALLBACK=false`. Isi `DUCKDNS_API_TOKEN` dengan token yang terlihat
-di akun DuckDNS. Default Docker menggunakan `gemini-2.5-flash-image`; Anda bisa
+di akun DuckDNS. Default Docker menggunakan `gemini-nano-banana-2.1`; Anda bisa
 mengganti `GEMINI_MODEL` dengan model image yang
 aktif pada akun Anda, lihat [daftar model image Google](https://ai.google.dev/gemini-api/docs/image-generation).
 API key hanya masuk ke environment backend saat runtime; tidak disalin ke image
@@ -136,8 +136,10 @@ Buka **https://photobooth-jepara.duckdns.org:8443**. Gunakan URL HTTPS ini pada 
 agar browser dapat meminta izin kamera. QR hasil mengarah ke domain yang sama dan
 dapat dibuka dari ponsel lewat jaringan lain.
 
-Healthcheck memeriksa server, bukan kevalidan key atau akses model. Saat production,
-fallback lokal sengaja dimatikan agar hasil overlay tidak dianggap sebagai hasil AI.
+Healthcheck memeriksa server, bukan kevalidan key atau akses model. QR/download token berlaku 60 detik; hasil PNG dan record database tetap disimpan
+selama masa retensi default tujuh hari agar galeri dan arsip operasional tidak ikut
+hilang saat QR habis. Set `RESULT_RETENTION_MS=0` jika hasil harus disimpan sampai
+operator melakukan pembersihan manual. Saat production, fallback lokal sengaja dimatikan agar hasil overlay tidak dianggap sebagai hasil AI.
 Jika Gemini gagal, UI menampilkan error dan tombol coba lagi; periksa log
 `Gemini generation failed` dan response `/api/generate` (`provider: gemini`) ketika
 menguji hasil AI. Lakukan satu sesi lengkap sampai QR dibuka di ponsel, lalu mulai
