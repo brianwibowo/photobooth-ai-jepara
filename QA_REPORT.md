@@ -1,54 +1,81 @@
 # QA report — Photobooth AI Museum R.A. Kartini
 
-Tanggal pemeriksaan: 11 Oktober 2026.
+Tanggal pemeriksaan: 14 Oktober 2026.
 
-## Status penerimaan
+## Kesimpulan
 
-Aplikasi belum layak disebut selesai penuh karena generasi gambar Gemini belum
-berhasil dibuktikan end-to-end pada project API yang memiliki kuota image
-generation. Alur UI, validasi server, privasi hasil, dan deployment sudah
-diperkeras. Setelah deploy, satu sesi nyata tetap harus diuji dari kamera sampai
-QR dibuka dari ponsel.
+Alur pengunjung, validasi input, fallback kamera, privasi hasil, dan layout
+kiosk sudah melewati smoke test lokal. Aplikasi masih belum dapat dinyatakan
+siap produksi penuh karena akses Gemini image generation pada project VPS
+belum terbukti berhasil. Penerimaan akhir juga membutuhkan satu tes kamera dan
+QR dari perangkat nyata setelah deploy.
 
-## Pemeriksaan yang berhasil
+## Skenario utama yang diuji
+
+| ID | Skenario | Hasil |
+| --- | --- | --- |
+| HP-01 | Beranda → pilih adegan → pilih tokoh → jumlah orang → data tamu | Lulus. State berpindah sesuai urutan PRD. |
+| HP-02 | Satu, dua, dan tiga tamu dengan nama serta gender masing-masing | Lulus. Form dibuat sesuai jumlah dan payload divalidasi server. |
+| HP-03 | Masuk ke kamera | Lulus secara UI. `getUserMedia()` dipanggil saat layar kamera mount; stream dihentikan saat keluar. |
+| HP-04 | Izin kamera tidak tersedia, ditolak, atau prompt menggantung | Lulus setelah perbaikan. Pesan fallback muncul setelah 8 detik dan upload foto tetap tersedia. |
+| HP-05 | Upload WebP → konfirmasi | Lulus. Preview, adegan, tokoh, dan data tamu tetap tampil. |
+| HP-06 | Generate gagal | Lulus. Foto dan form dipertahankan, layar kembali ke konfirmasi, tombol berubah menjadi “Coba lagi”. |
+| HP-07 | Mulai sesi baru setelah gagal/selesai | Lulus. State, kamera, request generate, dan object URL foto dibersihkan. |
+| HP-08 | Galeri berhasil/gagal | Lulus. Modal dapat dibuka/tutup; error API ditampilkan sebagai pesan lokal dengan retry. |
+| HP-09 | Desktop 1440×900 dan 1920×1080 | Lulus. Tinggi dokumen sama dengan viewport sehingga tidak ada scroll antar layar. |
+| HP-10 | Mobile 390×844 | Lulus. Layout tetap responsif dan scroll natural saat konten lebih tinggi dari viewport. |
+
+## Negative scenario
+
+| ID | Kondisi | Respons yang diverifikasi |
+| --- | --- | --- |
+| NG-01 | Nama atau gender tamu kosong | UI menahan perpindahan dan menampilkan pesan validasi. |
+| NG-02 | Jumlah tamu tidak sama dengan array tamu | API `400 GUESTS_INVALID`. |
+| NG-03 | MIME bukan JPG/PNG/WebP | API `415 UPLOAD_INVALID`. |
+| NG-04 | Foto tidak ada/rusak/resolusi melewati batas | API menolak dengan error yang aman dan tidak menyimpan hasil. |
+| NG-05 | Adegan atau tokoh tidak cocok | API `400 CONFIG_INVALID`. |
+| NG-06 | Gemini quota habis | API `429 GEMINI_QUOTA_EXCEEDED`, retryable, dengan petunjuk waktu retry. |
+| NG-07 | Provider gagal selain quota | API `502 GEMINI_GENERATION_FAILED`; UI kembali ke konfirmasi. |
+| NG-08 | Galeri/API mengembalikan HTML atau JSON invalid | Modal menampilkan “Galeri tidak dapat dimuat. Coba lagi.”, bukan error browser mentah. |
+| NG-09 | Token download tidak ada atau kedaluwarsa | API `404`/`410`; master tetap private dan tidak muncul di galeri. |
+| NG-10 | Hasil database gagal disimpan setelah file ditulis | File master/thumbnail sementara dibersihkan untuk mencegah orphan disk. |
+
+## Bukti pemeriksaan
 
 - `node --check server/index.js` berhasil.
 - `npm run build` berhasil dengan Vite.
-- Katalog data memuat 6 tokoh dan 3 adegan; setiap tokoh memiliki reference dan
-  prompt, setiap adegan memiliki background dan prompt.
-- `docker compose config --quiet` berhasil dengan placeholder untuk secret.
-- `createApp()` berhasil membuat dan menutup SQLite pada data directory sementara.
-- Browser production dapat membuka domain HTTPS `:8443` dan halaman beranda.
-- Layout desktop dikunci satu viewport pada lebar desktop untuk tinggi 900px dan
-  1080px; tinggi pendek di bawah 760px kembali mengizinkan scroll agar konten
-  tidak terpotong. Mobile tetap memakai scroll normal.
-- Kegagalan generate mempertahankan foto dan form, menampilkan pesan, dan
-  menyediakan tombol coba lagi. Kamera dihentikan saat berpindah layar dan
-  capture memiliki countdown.
-- Master hasil hanya dapat diakses melalui token acak yang kedaluwarsa tujuh
-  hari. Galeri hanya mengembalikan thumbnail tanpa nama, gender, waktu, adegan,
-  atau URL master.
-- Hasil dan thumbnail disimpan sebagai WebP. Hasil yang lewat tujuh hari
-  dibersihkan berkala untuk menahan pertumbuhan disk.
+- Smoke test HTTP dengan generator mock menghasilkan `200`, `provider: gemini`,
+  URL download WebP private, dan item galeri hanya berisi `thumbnailUrl`.
+- Smoke test invalid MIME menghasilkan `415 UPLOAD_INVALID`.
+- Smoke test jumlah tamu tidak sesuai menghasilkan `400 GUESTS_INVALID`.
+- Smoke test quota menghasilkan `429` dengan pesan retry `30 detik` yang benar.
+- SQLite sementara diuji untuk cleanup hasil kedaluwarsa dan cleanup file saat
+  persistence gagal.
+- Semua asset publik yang dipakai aplikasi sudah WebP; PNG/JPG redundan telah
+  dihapus.
+- Browser lokal diuji dari beranda sampai konfirmasi, fallback kamera, modal
+  galeri, retry, dan reset sesi.
 
 ## Temuan yang masih terbuka
 
-1. **P0 — Gemini.** Probe provider sebelumnya mengembalikan `429` dengan kuota
-   Free Tier image `limit: 0`. Server sekarang memakai endpoint resmi
-   `generateContent` dan default `gemini-2.5-flash-image`, tetapi key/project di
-   VPS harus memiliki billing atau kuota image yang aktif. API key yang pernah
-   ditempel di chat harus dirotasi.
+1. **P0 — Gemini end-to-end.** Probe provider sebelumnya mengembalikan `429`
+   dengan quota Free Tier image `limit: 0`. Server kini memakai endpoint resmi
+   `generateContent` dan hanya model terkonfigurasi (default
+   `gemini-2.5-flash-image`), tetapi project VPS harus memiliki billing/quota
+   image aktif. Key yang pernah ditempel di chat wajib dirotasi.
 2. **P1 — Buku tamu.** SQLite dan export CSV ber-token tersedia. Integrasi
    Google Sheets dan panel admin penuh belum dibuat.
-3. **P1 — Reference library.** Asset lokal yang tersisa adalah gambar komposit
-   museum, bukan library portrait terpisah untuk semua tokoh. Ini membatasi
-   konsistensi wajah output sampai reference yang disetujui dipulihkan.
+3. **P1 — Reference library.** Asset lokal yang tersedia masih berupa gambar
+   komposit museum, bukan portrait reference terpisah untuk semua tokoh. Ini
+   membatasi konsistensi identitas output Gemini.
 4. **P2 — Print.** Tombol dan print CSS tersedia, tetapi printer fisik museum
    belum diuji.
 
-## Pemeriksaan yang harus dijalankan di VPS
+## Verifikasi akhir di VPS
 
 ```bash
+cd ~/photobooth-ai-jepara
+git pull --ff-only
 docker compose config --quiet
 docker compose up -d --build
 docker compose ps
@@ -57,6 +84,7 @@ curl -sSI http://photobooth-jepara.duckdns.org:8080/api/health | grep -i '^locat
 docker compose logs --tail=100 app caddy
 ```
 
-`Location` HTTP harus menunjuk ke `https://photobooth-jepara.duckdns.org:8443/`.
-Uji satu upload nyata hanya setelah `GEMINI_MODEL=gemini-2.5-flash-image` dan
-key baru yang punya kuota sudah berada di `.env` VPS.
+`Location` HTTP harus menunjuk ke
+`https://photobooth-jepara.duckdns.org:8443/`. Setelah itu lakukan satu sesi
+nyata dari kamera sampai QR dibuka dari ponsel, lalu uji lagi dengan kuota
+Gemini habis untuk memastikan pesan retry tetap ramah pengguna.

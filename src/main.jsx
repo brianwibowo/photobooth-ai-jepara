@@ -30,19 +30,25 @@ function App() {
   const streamRef = useRef(null)
   const cameraRequestRef = useRef(0)
   const fileRef = useRef(null)
+  const photoUrlRef = useRef(null)
 
   const scene = useMemo(() => getScene(sceneId), [sceneId])
   const character = useMemo(() => getCharacter(characterId), [characterId])
   const stepIndex = Math.max(0, STEPS.indexOf(screen))
 
-  useEffect(() => () => { stopCamera(); generateControllerRef.current?.abort(); clearTimeout(generationTimerRef.current) }, [])
+  useEffect(() => () => { stopCamera(); generateControllerRef.current?.abort(); clearTimeout(generationTimerRef.current); if (photoUrlRef.current) URL.revokeObjectURL(photoUrlRef.current) }, [])
   useEffect(() => { if (isGalleryOpen) loadGallery() }, [isGalleryOpen])
   useEffect(() => {
     if (result?.qrUrl) QRCode.toDataURL(result.qrUrl, { width: 280, margin: 1, color: { dark: '#173e40', light: '#ffffff' } }).then(setQrData)
   }, [result])
 
   function go(next) { setError(''); setScreen(next) }
-  function begin() { stopCamera(); setResult(null); setPhoto(null); setPhotoFile(null); setSceneId(null); setPeople(1); setGuests(freshGuests(1)); setCharacterId('kartini'); go('scene') }
+  function replacePhoto(nextUrl) {
+    if (photoUrlRef.current) URL.revokeObjectURL(photoUrlRef.current)
+    photoUrlRef.current = nextUrl || null
+    setPhoto(nextUrl)
+  }
+  function begin() { stopCamera(); setResult(null); replacePhoto(null); setPhotoFile(null); setSceneId(null); setPeople(1); setGuests(freshGuests(1)); setCharacterId('kartini'); go('scene') }
   function chooseScene(id) { setSceneId(id); const selected = getScene(id); setCharacterId(selected.characterIds[0]); go('character') }
   function chooseCharacter(id) { setCharacterId(id); go('people') }
   function choosePeople(count) {
@@ -61,7 +67,24 @@ function App() {
       if (!navigator.mediaDevices?.getUserMedia) throw new Error('Kamera tidak tersedia di perangkat ini.')
       stopCamera()
       const activeRequestId = ++cameraRequestRef.current
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false })
+      const request = navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false })
+      let timeoutId
+      let stream
+      try {
+        stream = await Promise.race([
+          request,
+          new Promise((_, reject) => {
+            timeoutId = window.setTimeout(() => reject(new Error('Permintaan izin kamera belum dijawab.')), 8000)
+          }),
+        ])
+      } catch (error) {
+        // A permission prompt can resolve after the timeout. Do not leave that
+        // late stream open in a kiosk session where the visitor already moved on.
+        request.then((lateStream) => lateStream.getTracks().forEach((track) => track.stop())).catch(() => {})
+        throw error
+      } finally {
+        window.clearTimeout(timeoutId)
+      }
       if (activeRequestId !== cameraRequestRef.current) return stream.getTracks().forEach((track) => track.stop())
       streamRef.current = stream
       if (videoRef.current) videoRef.current.srcObject = streamRef.current
@@ -73,7 +96,7 @@ function App() {
     if (!video?.videoWidth) return setError('Tunggu sampai kamera siap, lalu coba lagi.')
     const canvas = document.createElement('canvas'); canvas.width = video.videoWidth; canvas.height = video.videoHeight
     canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height)
-    canvas.toBlob((blob) => { if (!blob) return setError('Foto belum siap. Coba ambil ulang.'); const file = new File([blob], 'capture.jpg', { type: 'image/jpeg' }); setPhotoFile(file); setPhoto(URL.createObjectURL(blob)); stopCamera(); go('confirm') }, 'image/jpeg', 0.9)
+    canvas.toBlob((blob) => { if (!blob) return setError('Foto belum siap. Coba ambil ulang.'); const file = new File([blob], 'capture.jpg', { type: 'image/jpeg' }); setPhotoFile(file); replacePhoto(URL.createObjectURL(blob)); stopCamera(); go('confirm') }, 'image/jpeg', 0.9)
   }
   function selectFile(event) {
     const file = event.target.files?.[0]
@@ -81,7 +104,7 @@ function App() {
     if (!file) return
     if (!file.type.startsWith('image/')) return setError('Pilih file gambar JPG, PNG, atau WebP.')
     if (file.size > 8 * 1024 * 1024) return setError('Ukuran foto maksimal 8 MB.')
-    setPhotoFile(file); setPhoto(URL.createObjectURL(file)); stopCamera(); go('confirm')
+    setPhotoFile(file); replacePhoto(URL.createObjectURL(file)); stopCamera(); go('confirm')
   }
   async function generate() {
     if (isBusy) return
@@ -103,9 +126,17 @@ function App() {
   }
   async function loadGallery() {
     setGalleryLoading(true); setGalleryError('')
-    try { const response = await fetch('/api/gallery?limit=12'); const payload = await response.json(); if (!response.ok) throw new Error(payload.error || 'Galeri tidak dapat dimuat.'); setGallery(payload.items || []) } catch (err) { setGallery([]); setGalleryError(err.message || 'Galeri tidak dapat dimuat.') } finally { setGalleryLoading(false) }
+    try {
+      const response = await fetch('/api/gallery?limit=12')
+      const payload = await response.json().catch(() => null)
+      if (!response.ok || !payload || !Array.isArray(payload.items)) throw new Error(payload?.error || 'Galeri tidak dapat dimuat. Coba lagi.')
+      setGallery(payload.items)
+    } catch (err) {
+      setGallery([])
+      setGalleryError(err.message || 'Galeri tidak dapat dimuat. Coba lagi.')
+    } finally { setGalleryLoading(false) }
   }
-  function newSession() { stopCamera(); generateControllerRef.current?.abort(); setResult(null); setPhoto(null); setPhotoFile(null); setSceneId(null); setPeople(1); setCharacterId('kartini'); setGuests(freshGuests(1)); go('home') }
+  function newSession() { stopCamera(); generateControllerRef.current?.abort(); setResult(null); replacePhoto(null); setPhotoFile(null); setSceneId(null); setPeople(1); setCharacterId('kartini'); setGuests(freshGuests(1)); go('home') }
 
   return <div className="app-shell">
     <header className="topbar">

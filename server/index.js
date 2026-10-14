@@ -25,6 +25,15 @@ const safeJson = (value, fallback) => {
 const now = () => new Date()
 const uniqueToken = () => crypto.randomBytes(32).toString('base64url')
 const csvEscape = (value) => `"${String(value ?? '').replaceAll('"', '""')}"`
+function formatRetryDelay(value) {
+  const match = String(value || '').match(/^(\d+(?:\.\d+)?)(ms|s|m|h)$/i)
+  if (!match) return ''
+  const amount = Number(match[1]); const unit = match[2].toLowerCase()
+  const seconds = unit === 'ms' ? amount / 1000 : unit === 'm' ? amount * 60 : unit === 'h' ? amount * 3600 : amount
+  if (seconds < 60) return ` Coba lagi dalam ${Math.max(1, Math.ceil(seconds))} detik.`
+  if (seconds < 3600) return ` Coba lagi dalam ${Math.ceil(seconds / 60)} menit.`
+  return ` Coba lagi dalam ${Math.ceil(seconds / 3600)} jam.`
+}
 
 function catalogMaps() {
   const characterMap = Object.fromEntries(characters.map((item) => [item.id, item]))
@@ -127,7 +136,10 @@ export function createApp(options = {}) {
   const upload = multer({
     storage: multer.memoryStorage(),
     limits: { fileSize: maxUploadMb * 1024 * 1024, files: 1 },
-    fileFilter: (_req, file, cb) => cb(null, /^(image\/(jpeg|png|webp|heic|heif))$/i.test(file.mimetype)),
+    fileFilter: (_req, file, cb) => {
+      if (!/^(image\/(jpeg|png|webp))$/i.test(file.mimetype)) return cb(new Error('UNSUPPORTED_IMAGE_TYPE'))
+      cb(null, true)
+    },
   })
   const app = express()
   app.disable('x-powered-by')
@@ -153,7 +165,7 @@ export function createApp(options = {}) {
     try {
       const metadata = await sharp(file.buffer, { limitInputPixels: maxPixels }).metadata()
       if (!metadata.width || !metadata.height || metadata.width * metadata.height > maxPixels) return 'Resolusi foto terlalu besar.'
-      if (!['jpeg', 'png', 'webp', 'heif', 'heic'].includes(metadata.format)) return 'Format foto tidak didukung.'
+      if (!['jpeg', 'png', 'webp'].includes(metadata.format)) return 'Format foto tidak didukung.'
       return null
     } catch { return 'File foto tidak valid atau rusak.' }
   }
@@ -164,10 +176,29 @@ export function createApp(options = {}) {
     return { data: optimized.toString('base64'), mimeType: 'image/jpeg' }
   }
 
+  async function callGeminiModel({ model, apiKey, inputParts }) {
+    const response = await fetchImpl(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
+      method: 'POST', headers: { 'content-type': 'application/json', 'x-goog-api-key': apiKey },
+      body: JSON.stringify({ contents: [{ role: 'user', parts: inputParts }], generationConfig: { responseModalities: ['TEXT', 'IMAGE'] } }),
+      signal: AbortSignal.timeout(timeoutMs),
+    })
+    const raw = await response.text()
+    let payload = {}
+    try { payload = JSON.parse(raw) } catch { /* handled below */ }
+    if (response.status === 429) {
+      const retryDelay = payload?.error?.details?.find((d) => d['@type']?.includes('RetryInfo'))?.retryDelay
+      throw Object.assign(new Error(`quota exceeded for ${model}`), { code: 'GEMINI_QUOTA_EXCEEDED', retryDelay, quotaError: true })
+    }
+    if (!response.ok) throw Object.assign(new Error(`provider request failed (${response.status})`), { code: `GEMINI_HTTP_${response.status}` })
+    const image = getOutputImage(payload)
+    if (!image) throw Object.assign(new Error('provider returned no image'), { code: 'GEMINI_NO_IMAGE' })
+    return Buffer.from(image, 'base64')
+  }
+
   async function generateWithGemini({ photoBuffer, sceneId, characterId, people }) {
     const apiKey = process.env.GEMINI_API_KEY
     if (!apiKey) throw Object.assign(new Error('missing api key'), { code: 'MISSING_API_KEY' })
-    const model = process.env.GEMINI_MODEL || DEFAULT_MODEL
+    const configuredModel = process.env.GEMINI_MODEL || DEFAULT_MODEL
     const scene = sceneMap[sceneId] || getScene(sceneId)
     const character = characterMap[characterId] || getCharacter(characterId)
     const visitor = await sharp(photoBuffer).rotate().resize({ width: 1536, withoutEnlargement: true }).jpeg({ quality: 88 }).toBuffer()
@@ -192,18 +223,9 @@ export function createApp(options = {}) {
       const bg = await imageData(path.join('public', scenePath))
       inputParts.push({ inline_data: { mime_type: bg.mimeType, data: bg.data } })
     }
-    const response = await fetchImpl(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
-      method: 'POST', headers: { 'content-type': 'application/json', 'x-goog-api-key': apiKey },
-      body: JSON.stringify({ contents: [{ role: 'user', parts: inputParts }], generationConfig: { responseModalities: ['TEXT', 'IMAGE'] } }),
-      signal: AbortSignal.timeout(timeoutMs),
-    })
-    const raw = await response.text()
-    let payload = {}
-    try { payload = JSON.parse(raw) } catch { /* handled below */ }
-    if (!response.ok) throw Object.assign(new Error('provider request failed'), { code: `GEMINI_HTTP_${response.status}` })
-    const image = getOutputImage(payload)
-    if (!image) throw Object.assign(new Error('provider returned no image'), { code: 'GEMINI_NO_IMAGE' })
-    return Buffer.from(image, 'base64')
+    // Use exactly the configured, documented model. Trying unconfigured model
+    // names can consume quota and hides the real project/model access error.
+    return await callGeminiModel({ model: configuredModel, apiKey, inputParts })
   }
 
   async function fallbackImage({ photoBuffer }) {
@@ -241,11 +263,13 @@ export function createApp(options = {}) {
   app.get('/api/health', (_req, res) => res.json({ ok: true, mode: process.env.GEMINI_API_KEY ? 'gemini' : 'gemini-not-configured', model: process.env.GEMINI_MODEL || DEFAULT_MODEL }))
   app.get('/api/gallery', (req, res) => {
     const limit = Math.min(Math.max(Number(req.query.limit) || 12, 1), 20)
-    const rows = db.prepare("SELECT id, thumbnail_file FROM results WHERE is_public = 1 AND provider = 'gemini' ORDER BY id DESC LIMIT ?").all(limit)
+    const current = now().toISOString()
+    const rows = db.prepare("SELECT id, thumbnail_file FROM results WHERE is_public = 1 AND provider = 'gemini' AND ((expires_at IS NOT NULL AND expires_at > ?) OR (expires_at IS NULL AND datetime(created_at, '+7 days') > datetime(?))) ORDER BY id DESC LIMIT ?").all(current, current, limit)
     res.json({ items: rows.map((row) => ({ thumbnailUrl: `/api/gallery/image/${encodeURIComponent(row.thumbnail_file)}` })) })
   })
   app.get('/api/gallery/image/:file', (req, res) => {
-    const row = db.prepare("SELECT thumbnail_file FROM results WHERE thumbnail_file = ? AND is_public = 1 AND provider = 'gemini'").get(req.params.file)
+    const current = now().toISOString()
+    const row = db.prepare("SELECT thumbnail_file FROM results WHERE thumbnail_file = ? AND is_public = 1 AND provider = 'gemini' AND ((expires_at IS NOT NULL AND expires_at > ?) OR (expires_at IS NULL AND datetime(created_at, '+7 days') > datetime(?)))").get(req.params.file, current, current)
     if (!row || !/^[a-zA-Z0-9._-]+-thumb\.webp$/.test(row.thumbnail_file)) return res.status(404).send('Gambar tidak ditemukan.')
     res.type('image/webp').set('Cache-Control', 'public, max-age=604800, immutable').sendFile(path.join(generatedDir, row.thumbnail_file))
   })
@@ -272,11 +296,16 @@ export function createApp(options = {}) {
     const guestError = validateGuestPayload(req.body)
     if (guestError) return res.status(400).json({ error: guestError, code: 'GUESTS_INVALID', retryable: false })
     if (!(await acquireSlot())) return res.status(429).json({ error: 'Photobooth sedang sibuk. Silakan coba lagi sebentar.', code: 'GENERATION_BUSY', retryable: true })
+    const writtenFiles = []
     try {
       let output; let provider = 'gemini'
       try { output = await (options.generateWithGemini || generateWithGemini)({ photoBuffer: req.file.buffer, sceneId, characterId, people }) }
       catch (error) {
-        console.error('Gemini generation failed', error?.code || 'UNKNOWN')
+        console.error('Gemini generation failed', error?.code || 'UNKNOWN', error?.message)
+        if (error?.quotaError) {
+          const retryHint = formatRetryDelay(error.retryDelay)
+          return res.status(429).json({ error: `Kuota API Gemini untuk model image habis.${retryHint} Aktifkan billing di Google Cloud atau gunakan project baru.`, code: 'GEMINI_QUOTA_EXCEEDED', retryable: true })
+        }
         if (process.env.NODE_ENV !== 'production' && process.env.ALLOW_LOCAL_FALLBACK === 'true') { output = await fallbackImage({ photoBuffer: req.file.buffer }); provider = 'fallback' }
         else return res.status(502).json({ error: 'Gemini belum berhasil membuat gambar. Periksa API key, model, dan kuota lalu coba lagi.', code: 'GEMINI_GENERATION_FAILED', retryable: true })
       }
@@ -289,7 +318,8 @@ export function createApp(options = {}) {
       const imageFile = `${stem}.webp`; const thumbFile = `${stem}-thumb.webp`
       const master = await sharp(output).rotate().resize({ width: 1800, withoutEnlargement: true }).webp({ quality: 86 }).toBuffer()
       const thumb = await sharp(master).resize({ width: 640, withoutEnlargement: true }).webp({ quality: 74 }).toBuffer()
-      await fs.writeFile(path.join(generatedDir, imageFile), master); await fs.writeFile(path.join(generatedDir, thumbFile), thumb)
+      await fs.writeFile(path.join(generatedDir, imageFile), master); writtenFiles.push(imageFile)
+      await fs.writeFile(path.join(generatedDir, thumbFile), thumb); writtenFiles.push(thumbFile)
       const createdAt = now(); const expiresAt = new Date(createdAt.getTime() + RESULT_TTL_MS).toISOString()
       const guests = safeJson(req.body.guests, [])
       const resultId = db.transaction(() => {
@@ -301,6 +331,7 @@ export function createApp(options = {}) {
       const downloadUrl = `${publicBaseUrl}/api/download/${token}`
       return res.json({ id: resultId, imageUrl: `/api/download/${token}`, thumbnailUrl: `/api/gallery/image/${encodeURIComponent(thumbFile)}`, qrUrl: downloadUrl, provider, expiresIn: '7 hari' })
     } catch (error) {
+      await Promise.all(writtenFiles.map(async (file) => { try { await fs.unlink(path.join(generatedDir, file)) } catch { /* best effort */ } }))
       console.error('Generation persistence failed', error?.code || 'UNKNOWN')
       return res.status(500).json({ error: 'Foto belum dapat disimpan. Silakan coba lagi.', code: 'RESULT_SAVE_FAILED', retryable: true })
     } finally { releaseSlot() }
