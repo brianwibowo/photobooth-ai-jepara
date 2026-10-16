@@ -93,6 +93,32 @@ function getOutputImage(payload) {
   return null
 }
 
+async function getOpenRouterImage(payload, fetchImpl) {
+  const choice = payload?.choices?.[0]
+  const images = choice?.message?.images || []
+  for (const img of images) {
+    const url = img?.image_url?.url || img?.url || ''
+    if (url.startsWith('data:image/')) {
+      const base64Data = url.split(',')[1]
+      if (base64Data) return Buffer.from(base64Data, 'base64')
+    } else if (url.startsWith('http')) {
+      const res = await fetchImpl(url)
+      return Buffer.from(await res.arrayBuffer())
+    }
+  }
+  const content = choice?.message?.content
+  if (typeof content === 'string') {
+    const dataMatch = content.match(/data:image\/[a-zA-Z0-9.-]+;base64,([A-Za-z0-9+/=]+)/)
+    if (dataMatch?.[1]) return Buffer.from(dataMatch[1], 'base64')
+    const urlMatch = content.match(/https?:\/\/[^\s"')]+\.(?:png|jpe?g|webp)/i)
+    if (urlMatch?.[0]) {
+      const res = await fetchImpl(urlMatch[0])
+      return Buffer.from(await res.arrayBuffer())
+    }
+  }
+  return null
+}
+
 export function createApp(options = {}) {
   const dataDir = options.dataDir || process.env.DATA_DIR || path.join(root, 'data')
   const generatedDir = path.join(dataDir, 'generated')
@@ -243,6 +269,89 @@ export function createApp(options = {}) {
     return await callGeminiModel({ model: configuredModel, apiKey, inputParts })
   }
 
+  async function generateWithOpenRouter({ photoBuffer, sceneId, characterId, people }) {
+    const apiKey = process.env.OPENROUTER_API_KEY
+    if (!apiKey) throw Object.assign(new Error('missing openrouter api key'), { code: 'MISSING_OPENROUTER_KEY' })
+    const configuredModel = process.env.OPENROUTER_MODEL || 'google/gemini-2.5-flash-image'
+    const fallbackModels = [
+      configuredModel,
+      'google/gemini-2.5-flash-image',
+      'google/gemini-3.1-flash-image',
+      'google/gemini-3.1-flash-lite-image',
+      'google/gemini-nano-banana-2.1',
+      'openai/gpt-5-image-mini'
+    ].filter((m, i, arr) => arr.indexOf(m) === i)
+
+    const scene = sceneMap[sceneId] || getScene(sceneId)
+    const character = characterMap[characterId] || getCharacter(characterId)
+    const visitor = await sharp(photoBuffer).rotate().resize({ width: 1536, withoutEnlargement: true }).jpeg({ quality: 88 }).toBuffer()
+    const prompt = [
+      `Create a new photorealistic commemorative museum photograph with ${people} visitor(s) together with ${character.name}.`,
+      `Place the visitors physically in the selected scene: ${scene.name}, ${scene.location}.`,
+      'Preserve each visitor facial identity, skin tone, age and overall likeness from the visitor reference, but do not return the original selfie or a selfie close-up.',
+      `Use the approved ${character.name} reference and the museum scene reference as identity and location guides. ${character.prompt || ''} ${scene.prompt || ''}`,
+      'Professional documentary museum photography, eye-level 50mm perspective, natural Indonesian skin texture, believable anatomy and hands, warm historical light, 3:2 landscape composition.',
+      'Do not add extra people, modern objects, text, borders, watermarks, costume substitutions, or distorted faces/hands.',
+    ].join(' ')
+
+    const contentParts = [
+      { type: 'text', text: prompt },
+      { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${visitor.toString('base64')}` } }
+    ]
+
+    const characterPath = (character?.reference || character?.image)?.replace(/^\//, '')
+    const scenePath = (scene?.background || scene?.image)?.replace(/^\//, '')
+    if (characterPath && fsSync.existsSync(path.join(root, 'public', characterPath))) {
+      const ref = await imageData(path.join('public', characterPath))
+      contentParts.push({ type: 'image_url', image_url: { url: `data:${ref.mimeType};base64,${ref.data}` } })
+    }
+    if (scenePath && fsSync.existsSync(path.join(root, 'public', scenePath))) {
+      const bg = await imageData(path.join('public', scenePath))
+      contentParts.push({ type: 'image_url', image_url: { url: `data:${bg.mimeType};base64,${bg.data}` } })
+    }
+
+    const response = await fetchImpl('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+        'HTTP-Referer': publicBaseUrl,
+        'X-Title': 'Photobooth AI Museum RA Kartini'
+      },
+      body: JSON.stringify({
+        models: fallbackModels,
+        modalities: ['image', 'text'],
+        messages: [{ role: 'user', content: contentParts }]
+      }),
+      signal: AbortSignal.timeout(timeoutMs)
+    })
+
+    const raw = await response.text()
+    let payload = {}
+    try { payload = JSON.parse(raw) } catch { /* handled below */ }
+
+    if (response.status === 402) {
+      throw Object.assign(new Error(payload?.error?.message || 'Saldo OpenRouter kurang dari $1.00.'), {
+        code: 'OPENROUTER_PAYMENT_REQUIRED',
+        remedy: 'Top up minimal $1 di https://openrouter.ai/settings/credits untuk membuka fitur gambar.'
+      })
+    }
+    if (response.status === 429) {
+      throw Object.assign(new Error(payload?.error?.message || 'Rate limit OpenRouter tercapai.'), {
+        code: 'OPENROUTER_RATE_LIMITED'
+      })
+    }
+    if (!response.ok) {
+      throw Object.assign(new Error(payload?.error?.message || `OpenRouter request failed (${response.status})`), {
+        code: `OPENROUTER_HTTP_${response.status}`
+      })
+    }
+
+    const imageBuffer = await getOpenRouterImage(payload, fetchImpl)
+    if (!imageBuffer) throw Object.assign(new Error('OpenRouter tidak mengembalikan gambar valid'), { code: 'OPENROUTER_NO_IMAGE' })
+    return imageBuffer
+  }
+
   async function fallbackImage({ photoBuffer }) {
     return sharp(photoBuffer).rotate().resize({ width: 1600, height: 1200, fit: 'cover' }).png({ compressionLevel: 9, adaptiveFiltering: true }).toBuffer()
   }
@@ -275,7 +384,20 @@ export function createApp(options = {}) {
     return true
   }
 
-  app.get('/api/health', (_req, res) => res.json({ ok: true, mode: process.env.GEMINI_API_KEY ? 'gemini' : 'gemini-not-configured', model: process.env.GEMINI_MODEL || DEFAULT_MODEL }))
+  app.get('/api/health', (_req, res) => {
+    const hasOpenRouter = Boolean(process.env.OPENROUTER_API_KEY)
+    const hasGemini = Boolean(process.env.GEMINI_API_KEY)
+    let mode = 'not-configured'
+    if (hasOpenRouter && hasGemini) mode = 'openrouter+gemini'
+    else if (hasOpenRouter) mode = 'openrouter'
+    else if (hasGemini) mode = 'gemini'
+    return res.json({
+      ok: true,
+      mode,
+      openrouterModel: process.env.OPENROUTER_MODEL || 'google/gemini-2.5-flash-image',
+      geminiModel: process.env.GEMINI_MODEL || DEFAULT_MODEL
+    })
+  })
   app.get('/api/gallery', (req, res) => {
     const limit = Math.min(Math.max(Number(req.query.limit) || 12, 1), 20)
     const current = now().toISOString()
@@ -320,15 +442,41 @@ export function createApp(options = {}) {
     const writtenFiles = []
     try {
       let output; let provider = 'gemini'
-      try { output = await (options.generateWithGemini || generateWithGemini)({ photoBuffer: req.file.buffer, sceneId, characterId, people }) }
-      catch (error) {
-        console.error('Gemini generation failed', error?.code || 'UNKNOWN', error?.message)
+      try {
+        if (process.env.OPENROUTER_API_KEY) {
+          try {
+            console.log('Generating image using OpenRouter models chain...')
+            output = await (options.generateWithOpenRouter || generateWithOpenRouter)({ photoBuffer: req.file.buffer, sceneId, characterId, people })
+            provider = 'openrouter'
+          } catch (orErr) {
+            console.warn('OpenRouter generation failed:', orErr?.code || orErr?.message)
+            if (process.env.GEMINI_API_KEY) {
+              console.log('Falling back to Google Gemini direct...')
+              output = await (options.generateWithGemini || generateWithGemini)({ photoBuffer: req.file.buffer, sceneId, characterId, people })
+              provider = 'gemini'
+            } else {
+              throw orErr
+            }
+          }
+        } else {
+          output = await (options.generateWithGemini || generateWithGemini)({ photoBuffer: req.file.buffer, sceneId, characterId, people })
+          provider = 'gemini'
+        }
+      } catch (error) {
+        console.error('AI generation failed', error?.code || 'UNKNOWN', error?.message)
+        if (error?.code === 'OPENROUTER_PAYMENT_REQUIRED') {
+          return res.status(402).json({
+            error: 'Saldo OpenRouter kurang dari $1.00 (syarat minimum OpenRouter untuk fitur gambar). Silakan isi saldo di https://openrouter.ai/settings/credits.',
+            code: 'OPENROUTER_PAYMENT_REQUIRED',
+            retryable: true
+          })
+        }
         if (error?.quotaError) {
           const retryHint = formatRetryDelay(error.retryDelay)
-          return res.status(429).json({ error: `Kuota API Gemini untuk model image habis.${retryHint} Aktifkan billing di Google Cloud atau gunakan project baru.`, code: 'GEMINI_QUOTA_EXCEEDED', retryable: true })
+          return res.status(429).json({ error: `Kuota API Gemini untuk model image habis.${retryHint} Aktifkan billing di Google Cloud atau gunakan OpenRouter.`, code: 'GEMINI_QUOTA_EXCEEDED', retryable: true })
         }
         if (process.env.NODE_ENV !== 'production' && process.env.ALLOW_LOCAL_FALLBACK === 'true') { output = await fallbackImage({ photoBuffer: req.file.buffer }); provider = 'fallback' }
-        else return res.status(502).json({ error: 'Gemini belum berhasil membuat gambar. Periksa API key, model, dan kuota lalu coba lagi.', code: 'GEMINI_GENERATION_FAILED', retryable: true })
+        else return res.status(502).json({ error: error?.message || 'AI belum berhasil membuat gambar. Periksa API key, model, dan kuota lalu coba lagi.', code: error?.code || 'GENERATION_FAILED', retryable: true })
       }
       let generatedMeta
       try { generatedMeta = await sharp(output, { limitInputPixels: maxPixels }).metadata() } catch {

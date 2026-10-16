@@ -13,8 +13,10 @@ services:
       # QR links must be the externally reachable URL (including :8443 here).
       # Keep this in sync with HTTPS_PORT and any upstream reverse proxy.
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-https://photobooth-jepara.duckdns.org:8443}
-      GEMINI_API_KEY: ${GEMINI_API_KEY:?Isi GEMINI_API_KEY di .env sebelum deploy}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       GEMINI_MODEL: ${GEMINI_MODEL:-gemini-nano-banana-2.1}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENROUTER_MODEL: ${OPENROUTER_MODEL:-google/gemini-2.5-flash-image}
       ALLOW_LOCAL_FALLBACK: ${ALLOW_LOCAL_FALLBACK:-false}
       # QR/download token lifetime (milliseconds). Generated files remain for
       # RESULT_RETENTION_MS and are independent from this short token TTL.
