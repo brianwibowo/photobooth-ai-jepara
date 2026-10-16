@@ -140,7 +140,10 @@ function App() {
     const video = videoRef.current
     if (!video?.videoWidth) return setError('Tunggu sampai kamera siap, lalu coba lagi.')
     const canvas = document.createElement('canvas'); canvas.width = video.videoWidth; canvas.height = video.videoHeight
-    canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height)
+    const ctx = canvas.getContext('2d')
+    ctx.translate(canvas.width, 0)
+    ctx.scale(-1, 1)
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
     canvas.toBlob((blob) => { if (!blob) return setError('Foto belum siap. Coba ambil ulang.'); const file = new File([blob], 'capture.jpg', { type: 'image/jpeg' }); setPhotoFile(file); replacePhoto(URL.createObjectURL(blob)); stopCamera(); go('confirm') }, 'image/jpeg', 0.9)
   }
   async function generate() {
