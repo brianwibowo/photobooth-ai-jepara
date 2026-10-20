@@ -106,11 +106,37 @@ async function getOpenRouterImage(payload, fetchImpl) {
       return Buffer.from(await res.arrayBuffer())
     }
   }
-  const content = choice?.message?.content
-  if (typeof content === 'string') {
-    const dataMatch = content.match(/data:image\/[a-zA-Z0-9.-]+;base64,([A-Za-z0-9+/=]+)/)
+  const messageContent = choice?.message?.content
+  if (Array.isArray(messageContent)) {
+    for (const part of messageContent) {
+      if (part?.type === 'image_url') {
+        const url = part?.image_url?.url || ''
+        if (url.startsWith('data:image/')) {
+          const base64Data = url.split(',')[1]
+          if (base64Data) return Buffer.from(base64Data, 'base64')
+        } else if (url.startsWith('http')) {
+          const res = await fetchImpl(url)
+          return Buffer.from(await res.arrayBuffer())
+        }
+      }
+      if (part?.type === 'image' && (part?.data || part?.source?.data)) {
+        return Buffer.from(part.data || part.source.data, 'base64')
+      }
+    }
+  }
+  if (Array.isArray(payload?.data)) {
+    for (const item of payload.data) {
+      if (item?.b64_json) return Buffer.from(item.b64_json, 'base64')
+      if (item?.url) {
+        const res = await fetchImpl(item.url)
+        return Buffer.from(await res.arrayBuffer())
+      }
+    }
+  }
+  if (typeof messageContent === 'string') {
+    const dataMatch = messageContent.match(/data:image\/[a-zA-Z0-9.-]+;base64,([A-Za-z0-9+/=]+)/)
     if (dataMatch?.[1]) return Buffer.from(dataMatch[1], 'base64')
-    const urlMatch = content.match(/https?:\/\/[^\s"')]+\.(?:png|jpe?g|webp)/i)
+    const urlMatch = messageContent.match(/https?:\/\/[^\s"')]+\.(?:png|jpe?g|webp)/i)
     if (urlMatch?.[0]) {
       const res = await fetchImpl(urlMatch[0])
       return Buffer.from(await res.arrayBuffer())
@@ -272,15 +298,17 @@ export function createApp(options = {}) {
   async function generateWithOpenRouter({ photoBuffer, sceneId, characterId, people }) {
     const apiKey = process.env.OPENROUTER_API_KEY
     if (!apiKey) throw Object.assign(new Error('missing openrouter api key'), { code: 'MISSING_OPENROUTER_KEY' })
-    const configuredModel = process.env.OPENROUTER_MODEL || 'google/gemini-2.5-flash-image'
+    const configuredModel = process.env.OPENROUTER_MODEL || process.env.AI_INFOGRAPHIC_MODEL || 'openai/gpt-image-2.5-flare'
     const fallbackModels = [
       configuredModel,
+      process.env.AI_INFOGRAPHIC_MODEL,
+      'openai/gpt-image-2.5-flare',
+      'openai/gpt-5-image-mini',
+      'openai/gpt-5.4-image-2',
+      'openai/gpt-5-image',
       'google/gemini-2.5-flash-image',
-      'google/gemini-3.1-flash-image',
-      'google/gemini-3.1-flash-lite-image',
-      'google/gemini-nano-banana-2.1',
-      'openai/gpt-5-image-mini'
-    ].filter((m, i, arr) => arr.indexOf(m) === i)
+      'google/gemini-3.1-flash-image'
+    ].filter((m, i, arr) => Boolean(m) && arr.indexOf(m) === i)
 
     const scene = sceneMap[sceneId] || getScene(sceneId)
     const character = characterMap[characterId] || getCharacter(characterId)
@@ -394,7 +422,7 @@ export function createApp(options = {}) {
     return res.json({
       ok: true,
       mode,
-      openrouterModel: process.env.OPENROUTER_MODEL || 'google/gemini-2.5-flash-image',
+      openrouterModel: process.env.OPENROUTER_MODEL || process.env.AI_INFOGRAPHIC_MODEL || 'openai/gpt-image-2.5-flare',
       geminiModel: process.env.GEMINI_MODEL || DEFAULT_MODEL
     })
   })
