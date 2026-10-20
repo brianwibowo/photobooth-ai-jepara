@@ -299,16 +299,6 @@ export function createApp(options = {}) {
     const apiKey = process.env.OPENROUTER_API_KEY
     if (!apiKey) throw Object.assign(new Error('missing openrouter api key'), { code: 'MISSING_OPENROUTER_KEY' })
     const configuredModel = process.env.OPENROUTER_MODEL || process.env.AI_INFOGRAPHIC_MODEL || 'openai/gpt-image-2.5-flare'
-    const fallbackModels = [
-      configuredModel,
-      process.env.AI_INFOGRAPHIC_MODEL,
-      'openai/gpt-image-2.5-flare',
-      'openai/gpt-5-image-mini',
-      'openai/gpt-5.4-image-2',
-      'openai/gpt-5-image',
-      'google/gemini-2.5-flash-image',
-      'google/gemini-3.1-flash-image'
-    ].filter((m, i, arr) => Boolean(m) && arr.indexOf(m) === i)
 
     const scene = sceneMap[sceneId] || getScene(sceneId)
     const character = characterMap[characterId] || getCharacter(characterId)
@@ -322,37 +312,57 @@ export function createApp(options = {}) {
       'Do not add extra people, modern objects, text, borders, watermarks, costume substitutions, or distorted faces/hands.',
     ].join(' ')
 
-    const contentParts = [
-      { type: 'text', text: prompt },
-      { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${visitor.toString('base64')}` } }
-    ]
-
-    const characterPath = (character?.reference || character?.image)?.replace(/^\//, '')
-    const scenePath = (scene?.background || scene?.image)?.replace(/^\//, '')
-    if (characterPath && fsSync.existsSync(path.join(root, 'public', characterPath))) {
-      const ref = await imageData(path.join('public', characterPath))
-      contentParts.push({ type: 'image_url', image_url: { url: `data:${ref.mimeType};base64,${ref.data}` } })
+    const isImagesEndpoint = configuredModel === 'openai/gpt-image-2.5-flare' || configuredModel.includes('flare') || configuredModel.includes('image-2.5')
+    let response
+    if (isImagesEndpoint) {
+      console.log(`Generating image using OpenRouter /api/v1/images (${configuredModel})...`)
+      response = await fetchImpl('https://openrouter.ai/api/v1/images', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`,
+          'HTTP-Referer': publicBaseUrl,
+          'X-Title': 'Photobooth AI Museum RA Kartini'
+        },
+        body: JSON.stringify({
+          model: configuredModel,
+          prompt: prompt,
+          image: `data:image/jpeg;base64,${visitor.toString('base64')}`
+        }),
+        signal: AbortSignal.timeout(timeoutMs)
+      })
+    } else {
+      const contentParts = [
+        { type: 'text', text: prompt },
+        { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${visitor.toString('base64')}` } }
+      ]
+      const characterPath = (character?.reference || character?.image)?.replace(/^\//, '')
+      const scenePath = (scene?.background || scene?.image)?.replace(/^\//, '')
+      if (characterPath && fsSync.existsSync(path.join(root, 'public', characterPath))) {
+        const ref = await imageData(path.join('public', characterPath))
+        contentParts.push({ type: 'image_url', image_url: { url: `data:${ref.mimeType};base64,${ref.data}` } })
+      }
+      if (scenePath && fsSync.existsSync(path.join(root, 'public', scenePath))) {
+        const bg = await imageData(path.join('public', scenePath))
+        contentParts.push({ type: 'image_url', image_url: { url: `data:${bg.mimeType};base64,${bg.data}` } })
+      }
+      console.log(`Generating image using OpenRouter /api/v1/chat/completions (${configuredModel})...`)
+      response = await fetchImpl('https://openrouter.ai/api/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`,
+          'HTTP-Referer': publicBaseUrl,
+          'X-Title': 'Photobooth AI Museum RA Kartini'
+        },
+        body: JSON.stringify({
+          model: configuredModel,
+          modalities: ['image', 'text'],
+          messages: [{ role: 'user', content: contentParts }]
+        }),
+        signal: AbortSignal.timeout(timeoutMs)
+      })
     }
-    if (scenePath && fsSync.existsSync(path.join(root, 'public', scenePath))) {
-      const bg = await imageData(path.join('public', scenePath))
-      contentParts.push({ type: 'image_url', image_url: { url: `data:${bg.mimeType};base64,${bg.data}` } })
-    }
-
-    const response = await fetchImpl('https://openrouter.ai/api/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`,
-        'HTTP-Referer': publicBaseUrl,
-        'X-Title': 'Photobooth AI Museum RA Kartini'
-      },
-      body: JSON.stringify({
-        models: fallbackModels,
-        modalities: ['image', 'text'],
-        messages: [{ role: 'user', content: contentParts }]
-      }),
-      signal: AbortSignal.timeout(timeoutMs)
-    })
 
     const raw = await response.text()
     let payload = {}
