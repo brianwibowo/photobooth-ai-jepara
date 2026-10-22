@@ -262,24 +262,29 @@ export function createApp(options = {}) {
     return Buffer.from(image, 'base64')
   }
 
-  async function generateWithGemini({ photoBuffer, sceneId, characterId, people }) {
+  async function generateWithGemini({ photoBuffer, sceneId, characterId, people, guests }) {
     const apiKey = process.env.GEMINI_API_KEY
     if (!apiKey) throw Object.assign(new Error('missing api key'), { code: 'MISSING_API_KEY' })
     const configuredModel = process.env.GEMINI_MODEL || DEFAULT_MODEL
     const scene = sceneMap[sceneId] || getScene(sceneId)
     const character = characterMap[characterId] || getCharacter(characterId)
     const visitor = await sharp(photoBuffer).rotate().resize({ width: 1536, withoutEnlargement: true }).jpeg({ quality: 88 }).toBuffer()
+
+    const guestListStr = Array.isArray(guests) && guests.length > 0
+      ? guests.map((g, i) => `Visitor ${i + 1}: ${g.gender === 'Laki-laki' ? 'Male (man/boy)' : 'Female (woman/girl)'} named "${g.name}"`).join('; ')
+      : `${people} visitor(s)`
+
     const prompt = [
-      `Create a new photorealistic commemorative museum photograph with ${people} visitor(s) together with ${character.name}.`,
-      `Place the visitors physically in the selected scene: ${scene.name}, ${scene.location}.`,
-      'Preserve each visitor facial identity, skin tone, age and overall likeness from the visitor reference, but do not return the original selfie or a selfie close-up.',
-      `Use the approved ${character.name} reference and the museum scene reference as identity and location guides. ${character.prompt || ''} ${scene.prompt || ''}`,
-      'Professional documentary museum photography, eye-level 50mm perspective, natural Indonesian skin texture, believable anatomy and hands, warm historical light, 3:2 landscape composition.',
-      'Do not add extra people, modern objects, text, borders, watermarks, costume substitutions, or distorted faces/hands.',
+      `Create an authentic, photorealistic commemorative museum photograph taken inside Museum R.A. Kartini.`,
+      `Visitors in this photo: ${guestListStr}.`,
+      `The visitors are photographed standing or sitting naturally together with historical figure ${character.name} in the setting of ${scene.name}, ${scene.location}.`,
+      `CRITICAL IDENTITY AND GENDER INSTRUCTION: Preserve each visitor's real facial identity, face structure, exact gender (${guestListStr}), skin tone, age, and distinctive features strictly from the visitor reference photo. Do NOT swap genders (e.g. do not turn male visitors into females), do NOT substitute with random faces, and do NOT alter their identity.`,
+      `The historical figure ${character.name} must match the approved historical reference portrait, wearing authentic traditional Javanese attire. ${character.prompt || ''}`,
+      `The museum setting must faithfully represent ${scene.name} (${scene.location}). ${scene.prompt || ''}`,
+      'Documentary museum photography, eye-level 50mm perspective, natural Indonesian skin texture, believable anatomy and hands, warm historical light, 3:2 landscape composition.',
+      'Do not add extra people, modern objects, text, borders, watermarks, or distorted features.',
     ].join(' ')
     const inputParts = [{ text: prompt }, { inline_data: { mime_type: 'image/jpeg', data: visitor.toString('base64') } }]
-    // Keep the AI input data-driven: identity refs and locked scene refs are
-    // separate fields, with image kept as the UI thumbnail fallback.
     const characterPath = (character?.reference || character?.image)?.replace(/^\//, '')
     const scenePath = (scene?.background || scene?.image)?.replace(/^\//, '')
     if (characterPath && fsSync.existsSync(path.join(root, 'public', characterPath))) {
@@ -290,12 +295,10 @@ export function createApp(options = {}) {
       const bg = await imageData(path.join('public', scenePath))
       inputParts.push({ inline_data: { mime_type: bg.mimeType, data: bg.data } })
     }
-    // Use exactly the configured, documented model. Trying unconfigured model
-    // names can consume quota and hides the real project/model access error.
     return await callGeminiModel({ model: configuredModel, apiKey, inputParts })
   }
 
-  async function generateWithOpenRouter({ photoBuffer, sceneId, characterId, people }) {
+  async function generateWithOpenRouter({ photoBuffer, sceneId, characterId, people, guests }) {
     const apiKey = process.env.OPENROUTER_API_KEY
     if (!apiKey) throw Object.assign(new Error('missing openrouter api key'), { code: 'MISSING_OPENROUTER_KEY' })
     const configuredModel = process.env.OPENROUTER_MODEL || process.env.AI_INFOGRAPHIC_MODEL || 'openai/gpt-image-2.5-flare'
@@ -303,19 +306,54 @@ export function createApp(options = {}) {
     const scene = sceneMap[sceneId] || getScene(sceneId)
     const character = characterMap[characterId] || getCharacter(characterId)
     const visitor = await sharp(photoBuffer).rotate().resize({ width: 1536, withoutEnlargement: true }).jpeg({ quality: 88 }).toBuffer()
+
+    const characterPath = (character?.reference || character?.image)?.replace(/^\//, '')
+    const scenePath = (scene?.background || scene?.image)?.replace(/^\//, '')
+    let charRef = null
+    let sceneRef = null
+    if (characterPath && fsSync.existsSync(path.join(root, 'public', characterPath))) {
+      charRef = await imageData(path.join('public', characterPath))
+    }
+    if (scenePath && fsSync.existsSync(path.join(root, 'public', scenePath))) {
+      sceneRef = await imageData(path.join('public', scenePath))
+    }
+
+    const guestListStr = Array.isArray(guests) && guests.length > 0
+      ? guests.map((g, i) => `Visitor ${i + 1}: ${g.gender === 'Laki-laki' ? 'Male (man/boy)' : 'Female (woman/girl)'} named "${g.name}"`).join('; ')
+      : `${people} visitor(s)`
+
     const prompt = [
-      `Create a new photorealistic commemorative museum photograph with ${people} visitor(s) together with ${character.name}.`,
-      `Place the visitors physically in the selected scene: ${scene.name}, ${scene.location}.`,
-      'Preserve each visitor facial identity, skin tone, age and overall likeness from the visitor reference, but do not return the original selfie or a selfie close-up.',
-      `Use the approved ${character.name} reference and the museum scene reference as identity and location guides. ${character.prompt || ''} ${scene.prompt || ''}`,
-      'Professional documentary museum photography, eye-level 50mm perspective, natural Indonesian skin texture, believable anatomy and hands, warm historical light, 3:2 landscape composition.',
-      'Do not add extra people, modern objects, text, borders, watermarks, costume substitutions, or distorted faces/hands.',
+      `Create an authentic, photorealistic commemorative museum photograph inside Museum R.A. Kartini.`,
+      `Visitors: ${guestListStr}.`,
+      `The visitors are photographed together with historical figure ${character.name} in the setting of ${scene.name}, ${scene.location}.`,
+      `CRITICAL REFERENCE IMAGE INSTRUCTIONS:`,
+      `- Reference 1 (Visitor Reference): You MUST strictly preserve this person's real face, exact facial structure, gender (${guestListStr}), skin tone, age, and features. The visitor in the photo MUST look unmistakably like the real visitor in Reference 1. Do NOT change their gender, do NOT turn male visitors into females, and do NOT replace them with fictional people.`,
+      `- Reference 2 (Historical Figure): ${character.name} as shown in Reference 2, wearing authentic traditional Javanese period attire. ${character.prompt || ''}`,
+      `- Reference 3 (Museum Setting): Historical architecture and atmosphere of ${scene.name} (${scene.location}). ${scene.prompt || ''}`,
+      `Composition: Photorealistic documentary photography, eye-level 50mm perspective, natural Indonesian skin texture, believable hands, warm museum interior lighting, 3:2 landscape orientation. No extra people, no cartoons, no text, no watermarks.`,
     ].join(' ')
 
-    const isImagesEndpoint = configuredModel === 'openai/gpt-image-2.5-flare' || configuredModel.includes('flare') || configuredModel.includes('image-2.5')
+    const isImagesEndpoint = configuredModel.includes('gpt-image') ||
+      configuredModel.includes('flare') ||
+      configuredModel.includes('sunburst') ||
+      configuredModel.includes('seedream') ||
+      configuredModel.includes('flux') ||
+      configuredModel.includes('dall-e') ||
+      process.env.OPENROUTER_ENDPOINT === 'images'
+
     let response
     if (isImagesEndpoint) {
       console.log(`Generating image using OpenRouter /api/v1/images (${configuredModel})...`)
+      const inputReferences = [
+        { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${visitor.toString('base64')}` } }
+      ]
+      if (charRef) {
+        inputReferences.push({ type: 'image_url', image_url: { url: `data:${charRef.mimeType};base64,${charRef.data}` } })
+      }
+      if (sceneRef) {
+        inputReferences.push({ type: 'image_url', image_url: { url: `data:${sceneRef.mimeType};base64,${sceneRef.data}` } })
+      }
+
       response = await fetchImpl('https://openrouter.ai/api/v1/images', {
         method: 'POST',
         headers: {
@@ -327,7 +365,8 @@ export function createApp(options = {}) {
         body: JSON.stringify({
           model: configuredModel,
           prompt: prompt,
-          image: `data:image/jpeg;base64,${visitor.toString('base64')}`
+          input_references: inputReferences,
+          aspect_ratio: '3:2'
         }),
         signal: AbortSignal.timeout(timeoutMs)
       })
@@ -336,15 +375,11 @@ export function createApp(options = {}) {
         { type: 'text', text: prompt },
         { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${visitor.toString('base64')}` } }
       ]
-      const characterPath = (character?.reference || character?.image)?.replace(/^\//, '')
-      const scenePath = (scene?.background || scene?.image)?.replace(/^\//, '')
-      if (characterPath && fsSync.existsSync(path.join(root, 'public', characterPath))) {
-        const ref = await imageData(path.join('public', characterPath))
-        contentParts.push({ type: 'image_url', image_url: { url: `data:${ref.mimeType};base64,${ref.data}` } })
+      if (charRef) {
+        contentParts.push({ type: 'image_url', image_url: { url: `data:${charRef.mimeType};base64,${charRef.data}` } })
       }
-      if (scenePath && fsSync.existsSync(path.join(root, 'public', scenePath))) {
-        const bg = await imageData(path.join('public', scenePath))
-        contentParts.push({ type: 'image_url', image_url: { url: `data:${bg.mimeType};base64,${bg.data}` } })
+      if (sceneRef) {
+        contentParts.push({ type: 'image_url', image_url: { url: `data:${sceneRef.mimeType};base64,${sceneRef.data}` } })
       }
       console.log(`Generating image using OpenRouter /api/v1/chat/completions (${configuredModel})...`)
       response = await fetchImpl('https://openrouter.ai/api/v1/chat/completions', {
@@ -477,6 +512,7 @@ export function createApp(options = {}) {
     const guestError = validateGuestPayload(req.body)
     if (guestError) return res.status(400).json({ error: guestError, code: 'GUESTS_INVALID', retryable: false })
     if (!(await acquireSlot())) return res.status(429).json({ error: 'Photobooth sedang sibuk. Silakan coba lagi sebentar.', code: 'GENERATION_BUSY', retryable: true })
+    const guestList = safeJson(req.body.guests, [])
     const writtenFiles = []
     try {
       let output; let provider = 'gemini'
@@ -484,20 +520,20 @@ export function createApp(options = {}) {
         if (process.env.OPENROUTER_API_KEY) {
           try {
             console.log('Generating image using OpenRouter models chain...')
-            output = await (options.generateWithOpenRouter || generateWithOpenRouter)({ photoBuffer: req.file.buffer, sceneId, characterId, people })
+            output = await (options.generateWithOpenRouter || generateWithOpenRouter)({ photoBuffer: req.file.buffer, sceneId, characterId, people, guests: guestList })
             provider = 'openrouter'
           } catch (orErr) {
             console.warn('OpenRouter generation failed:', orErr?.code || orErr?.message)
             if (process.env.GEMINI_API_KEY) {
               console.log('Falling back to Google Gemini direct...')
-              output = await (options.generateWithGemini || generateWithGemini)({ photoBuffer: req.file.buffer, sceneId, characterId, people })
+              output = await (options.generateWithGemini || generateWithGemini)({ photoBuffer: req.file.buffer, sceneId, characterId, people, guests: guestList })
               provider = 'gemini'
             } else {
               throw orErr
             }
           }
         } else {
-          output = await (options.generateWithGemini || generateWithGemini)({ photoBuffer: req.file.buffer, sceneId, characterId, people })
+          output = await (options.generateWithGemini || generateWithGemini)({ photoBuffer: req.file.buffer, sceneId, characterId, people, guests: guestList })
           provider = 'gemini'
         }
       } catch (error) {
@@ -532,11 +568,10 @@ export function createApp(options = {}) {
       const createdAt = now()
       const expiresAt = resultRetentionMs > 0 ? new Date(createdAt.getTime() + resultRetentionMs).toISOString() : null
       const downloadExpiresAt = new Date(createdAt.getTime() + downloadTtlMs).toISOString()
-      const guests = safeJson(req.body.guests, [])
       const resultId = db.transaction(() => {
         const result = db.prepare('INSERT INTO results (token,image_file,thumbnail_file,scene_id,character_id,provider,is_public,created_at,expires_at,download_expires_at) VALUES (?,?,?,?,?,?,?,?,?,?)').run(token, imageFile, thumbFile, sceneId, characterId, provider, provider === 'gemini' ? 1 : 0, createdAt.toISOString(), expiresAt, downloadExpiresAt)
         const insertGuest = db.prepare('INSERT INTO guests (result_id,name,gender,created_at) VALUES (?,?,?,?)')
-        guests.forEach((guest) => insertGuest.run(result.lastInsertRowid, guest.name.trim().slice(0, 80), guest.gender, createdAt.toISOString()))
+        guestList.forEach((guest) => insertGuest.run(result.lastInsertRowid, guest.name.trim().slice(0, 80), guest.gender, createdAt.toISOString()))
         return result.lastInsertRowid
       })()
       const downloadUrl = `${publicBaseUrl}/api/download/${token}`

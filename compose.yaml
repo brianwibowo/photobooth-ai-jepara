@@ -16,7 +16,7 @@ services:
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       GEMINI_MODEL: ${GEMINI_MODEL:-gemini-nano-banana-2.1}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
-      OPENROUTER_MODEL: ${OPENROUTER_MODEL:-${AI_INFOGRAPHIC_MODEL:-openai/gpt-image-2.5-flare}}
+      OPENROUTER_MODEL: ${OPENROUTER_MODEL:-${AI_INFOGRAPHIC_MODEL:-openai/gpt-image-2.5-sunburst}}
       AI_INFOGRAPHIC_MODEL: ${AI_INFOGRAPHIC_MODEL:-}
       ALLOW_LOCAL_FALLBACK: ${ALLOW_LOCAL_FALLBACK:-false}
       # QR/download token lifetime (milliseconds). Generated files remain for
