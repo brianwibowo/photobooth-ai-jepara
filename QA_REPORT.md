@@ -4,11 +4,9 @@ Tanggal pemeriksaan: 14 Oktober 2026.
 
 ## Kesimpulan
 
-Alur pengunjung, validasi input, kamera wajib aktif, privasi hasil, dan layout
-kiosk sudah melewati smoke test lokal. Aplikasi masih belum dapat dinyatakan
-siap produksi penuh karena akses Gemini image generation pada project VPS
-belum terbukti berhasil. Penerimaan akhir juga membutuhkan satu tes kamera dan
-QR dari perangkat nyata setelah deploy.
+Alur pengunjung, validasi input, kamera wajib aktif, privasi hasil, layout kiosk,
+dan OpenRouter image generation sudah melewati smoke test. Penerimaan akhir tetap
+membutuhkan satu tes kamera dan QR dari perangkat nyata setelah deploy.
 
 ## Skenario utama yang diuji
 
@@ -34,7 +32,7 @@ QR dari perangkat nyata setelah deploy.
 | NG-03 | Payload foto tidak valid atau MIME bukan gambar | API `415 UPLOAD_INVALID`/`400 PHOTO_INVALID`; UI kiosk tidak menyediakan upload file. |
 | NG-04 | Foto tidak ada/rusak/resolusi melewati batas | API menolak dengan error yang aman dan tidak menyimpan hasil. |
 | NG-05 | Adegan atau tokoh tidak cocok | API `400 CONFIG_INVALID`. |
-| NG-06 | Gemini quota habis | API `429 GEMINI_QUOTA_EXCEEDED`, retryable, dengan petunjuk waktu retry. |
+| NG-06 | OpenRouter saldo/rate limit bermasalah | API `402 OPENROUTER_PAYMENT_REQUIRED` atau `429 OPENROUTER_RATE_LIMITED`, retryable. |
 | NG-07 | Provider gagal selain quota | API `502 GEMINI_GENERATION_FAILED`; UI kembali ke konfirmasi. |
 | NG-08 | Galeri/API mengembalikan HTML atau JSON invalid | Modal menampilkan “Galeri tidak dapat dimuat. Coba lagi.”, bukan error browser mentah. |
 | NG-09 | Token download tidak ada atau kedaluwarsa | API `404`/`410`; token berhenti bekerja setelah 60 detik, sementara master PNG, thumbnail, dan record tetap tersimpan sampai masa retensi. |
@@ -58,11 +56,9 @@ QR dari perangkat nyata setelah deploy.
 
 ## Temuan yang masih terbuka
 
-1. **P0 — Gemini end-to-end.** Probe provider sebelumnya mengembalikan `429`
-   dengan quota Free Tier image `limit: 0`. Server kini memakai endpoint resmi
-   `generateContent` dan hanya model terkonfigurasi (default
-   `gemini-nano-banana-2.1`), tetapi project VPS harus memiliki billing/quota
-   image aktif. Key yang pernah ditempel di chat wajib dirotasi.
+1. **P0 — Kamera fisik dan biaya provider.** OpenRouter `openai/gpt-image-2.5-flare`
+   sudah berhasil diuji end-to-end dengan output PNG 1536×1024. Uji kamera fisik,
+   saldo, rate limit, dan konsistensi wajah tetap perlu dilakukan di VPS.
 2. **P1 — Buku tamu.** SQLite dan export CSV ber-token tersedia. Integrasi
    Google Sheets dan panel admin penuh belum dibuat.
 3. **P1 — Reference library.** Asset lokal yang tersedia masih berupa gambar

@@ -5,16 +5,16 @@ A lightweight, museum-first photobooth web app for a 2 GB VPS. Visitors select a
 ## Stack
 
 - React + Vite: responsive single-page experience with no heavy UI framework.
-- Express: small server/API layer that keeps the Gemini secret off the client.
+- Express: small server/API layer that keeps provider secrets off the client.
 - SQLite: local metadata and guest book storage, suitable for a single museum kiosk/VPS.
 - Sharp: validates photos, keeps generated masters as PNG, and creates lightweight WebP gallery thumbnails.
-- Gemini image generation: configurable through `GEMINI_MODEL`, using the official Gemini `generateContent` image endpoint. The Docker default is `gemini-nano-banana-2.1`; production fallback is disabled by default so a branded overlay can never be mistaken for a Gemini result. The Gemini API project must have image-generation quota; a Free Tier `limit: 0` response is a provider quota issue.
+- OpenRouter image generation: configured with `OPENROUTER_API_KEY` and `AI_INFOGRAPHIC_MODEL`/`OPENROUTER_MODEL`; the Docker default is `openai/gpt-image-2.5-flare`. Gemini remains available as a fallback when configured. Production local fallback is disabled so a branded overlay can never be mistaken for an AI result.
 
 ## Run locally
 
 ```bash
 cp .env.example .env
-# Add GEMINI_API_KEY in .env (server-side only)
+# Add OPENROUTER_API_KEY in .env (server-side only)
 npm install
 npm run dev
 ```

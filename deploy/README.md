@@ -81,13 +81,13 @@ chmod 600 .env
 nano .env
 ```
 
-Isi `GEMINI_API_KEY` dengan key yang bisa mengakses Gemini image generation.
+Isi `OPENROUTER_API_KEY` dengan key OpenRouter yang memiliki saldo untuk image generation.
 Biarkan `DOMAIN=photobooth-jepara.duckdns.org`, `HTTP_PORT=8080`,
 `HTTPS_PORT=8443`, `PUBLIC_BASE_URL=https://photobooth-jepara.duckdns.org:8443`,
 dan `ALLOW_LOCAL_FALLBACK=false`. Isi `DUCKDNS_API_TOKEN` dengan token yang terlihat
-di akun DuckDNS. Default Docker menggunakan `gemini-nano-banana-2.1`; Anda bisa
-mengganti `GEMINI_MODEL` dengan model image yang
-aktif pada akun Anda, lihat [daftar model image Google](https://ai.google.dev/gemini-api/docs/image-generation).
+di akun DuckDNS. Default Docker menggunakan `openai/gpt-image-2.5-flare` melalui
+OpenRouter. Anda bisa mengganti `AI_INFOGRAPHIC_MODEL` atau `OPENROUTER_MODEL`
+dengan model image lain yang aktif pada akun Anda.
 API key hanya masuk ke environment backend saat runtime; tidak disalin ke image
 atau JavaScript frontend. `.dockerignore` juga mengecualikan foto pengunjung,
 SQLite lokal, serta seluruh folder referensi asli yang besar dari build context.
@@ -215,12 +215,10 @@ tempat privat. Volume sertifikat tetap dipertahankan saat update normal.
 - **Aplikasi unhealthy:** lihat `docker compose logs --tail=100 app`; pastikan
   volume dapat ditulis oleh UID 1000. Named volume baru mengambil ownership dari
   direktori image; bind mount buatan sendiri memerlukan izin yang sesuai.
-- **Foto AI gagal dibuat:** cek key, model, kuota/billing Gemini, dan koneksi keluar.
-  Jalankan `docker compose logs --tail=100 app` dan cari detail `Gemini generateContent
-  API`. Jika muncul `429 ... limit: 0 requests per day on Free Tier`, key tersebut
-  memang belum memiliki kuota image generation API. Aktifkan billing/quota pada
-  project Google AI Studio atau gunakan key dari project yang sudah diizinkan;
-  mengganti port, Docker, atau prompt tidak akan mengatasi 429 tersebut. Status
-  health `ok` tidak membuktikan generation Gemini berhasil.
+- **Foto AI gagal dibuat:** cek `OPENROUTER_API_KEY`, `OPENROUTER_MODEL`, saldo
+  OpenRouter, dan koneksi keluar. Jalankan `docker compose logs --tail=100 app`.
+  Error `402` berarti saldo OpenRouter belum memenuhi syarat image generation;
+  error `429` berarti rate limit. Status health `ok` hanya membuktikan server hidup,
+  bukan generation berhasil.
 - **Build exit 137 / kehabisan RAM:** hentikan proses berat saat build, tambahkan
   swap sesuai kebijakan VPS, atau build image di mesin lain untuk arsitektur VPS.
