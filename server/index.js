@@ -275,25 +275,24 @@ export function createApp(options = {}) {
       : `${people} visitor(s)`
 
     const prompt = [
-      `Create an authentic, photorealistic commemorative museum photograph taken inside Museum R.A. Kartini.`,
-      `Visitors in this photo: ${guestListStr}.`,
-      `The visitors are photographed standing or sitting naturally together with historical figure ${character.name} in the setting of ${scene.name}, ${scene.location}.`,
-      `CRITICAL IDENTITY AND GENDER INSTRUCTION: Preserve each visitor's real facial identity, face structure, exact gender (${guestListStr}), skin tone, age, and distinctive features strictly from the visitor reference photo. Do NOT swap genders (e.g. do not turn male visitors into females), do NOT substitute with random faces, and do NOT alter their identity.`,
-      `The historical figure ${character.name} must match the approved historical reference portrait, wearing authentic traditional Javanese attire. ${character.prompt || ''}`,
-      `The museum setting must faithfully represent ${scene.name} (${scene.location}). ${scene.prompt || ''}`,
+      `Create one authentic, photorealistic commemorative museum photograph taken inside Museum R.A. Kartini Rembang.`,
+      `There must be exactly ${people} visitor(s) from the visitor reference plus exactly one historical figure: ${character.name}. Preserve every visitor's real face, facial proportions, gender, skin tone, age, and left-to-right order.`,
+      `Reference order is strict: Reference 1 is the visitor photo and the only source for visitor identities; Reference 2 is the selected historical figure; Reference 3 is the selected museum background. Ignore incidental people visible in References 2 and 3.`,
+      `The historical figure ${character.name} must keep the same face, hairstyle, age, and authentic Javanese period clothing as Reference 2. ${character.prompt || ''}`,
+      `Place everyone naturally in ${scene.name}, ${scene.location}, preserving the architecture and lighting from Reference 3. ${scene.prompt || ''}`,
       'Documentary museum photography, eye-level 50mm perspective, natural Indonesian skin texture, believable anatomy and hands, warm historical light, 3:2 landscape composition.',
-      'Do not add extra people, modern objects, text, borders, watermarks, or distorted features.',
+      'Do not add, remove, duplicate, merge, or swap people. No face morphing, gender swap, extra people, modern objects, text, borders, logos, watermarks, or distorted faces/hands.',
     ].join(' ')
-    const inputParts = [{ text: prompt }, { inline_data: { mime_type: 'image/jpeg', data: visitor.toString('base64') } }]
+    const inputParts = [{ text: prompt }, { text: 'REFERENCE 1 — VISITOR PHOTO. Preserve all visitor identities exactly and keep their left-to-right order.' }, { inline_data: { mime_type: 'image/jpeg', data: visitor.toString('base64') } }]
     const characterPath = (character?.reference || character?.image)?.replace(/^\//, '')
     const scenePath = (scene?.background || scene?.image)?.replace(/^\//, '')
     if (characterPath && fsSync.existsSync(path.join(root, 'public', characterPath))) {
       const ref = await imageData(path.join('public', characterPath))
-      inputParts.push({ inline_data: { mime_type: ref.mimeType, data: ref.data } })
+      inputParts.push({ text: 'REFERENCE 2 — SELECTED HISTORICAL FIGURE. Use only this person for the museum figure.' }, { inline_data: { mime_type: ref.mimeType, data: ref.data } })
     }
     if (scenePath && fsSync.existsSync(path.join(root, 'public', scenePath))) {
       const bg = await imageData(path.join('public', scenePath))
-      inputParts.push({ inline_data: { mime_type: bg.mimeType, data: bg.data } })
+      inputParts.push({ text: 'REFERENCE 3 — SELECTED MUSEUM BACKGROUND. Use its architecture and lighting; ignore people in it.' }, { inline_data: { mime_type: bg.mimeType, data: bg.data } })
     }
     return await callGeminiModel({ model: configuredModel, apiKey, inputParts })
   }
@@ -323,14 +322,14 @@ export function createApp(options = {}) {
       : `${people} visitor(s)`
 
     const prompt = [
-      `Create an authentic, photorealistic commemorative museum photograph inside Museum R.A. Kartini.`,
-      `Visitors: ${guestListStr}.`,
-      `The visitors are photographed together with historical figure ${character.name} in the setting of ${scene.name}, ${scene.location}.`,
-      `CRITICAL REFERENCE IMAGE INSTRUCTIONS:`,
-      `- Reference 1 (Visitor Reference): You MUST strictly preserve this person's real face, exact facial structure, gender (${guestListStr}), skin tone, age, and features. The visitor in the photo MUST look unmistakably like the real visitor in Reference 1. Do NOT change their gender, do NOT turn male visitors into females, and do NOT replace them with fictional people.`,
-      `- Reference 2 (Historical Figure): ${character.name} as shown in Reference 2, wearing authentic traditional Javanese period attire. ${character.prompt || ''}`,
-      `- Reference 3 (Museum Setting): Historical architecture and atmosphere of ${scene.name} (${scene.location}). ${scene.prompt || ''}`,
-      `Composition: Photorealistic documentary photography, eye-level 50mm perspective, natural Indonesian skin texture, believable hands, warm museum interior lighting, 3:2 landscape orientation. No extra people, no cartoons, no text, no watermarks.`,
+      `Create one authentic, photorealistic commemorative museum photograph for Museum R.A. Kartini Rembang.`,
+      `There must be exactly ${people} visitor(s) from the visitor reference photo plus exactly one historical figure: ${character.name}. Do not add, remove, duplicate, or merge people.`,
+      `Visitors in the source photo: ${guestListStr}. Preserve every visitor's real face, facial proportions, eye shape, nose, mouth, hair, skin tone, age, body proportions, gender, and recognizable identity. Keep the same left-to-right face order as the source photo. The result must still look like the same people photographed in a new place.`,
+      `REFERENCE ORDER IS STRICT: Reference 1 is the visitor photo and is the only source for visitor identities. Reference 2 is the selected historical figure and is the only source for that figure's face and clothing. Reference 3 is the selected museum background and is the only source for architecture and location. Ignore and never copy any incidental people visible in References 2 or 3.`,
+      `The selected figure ${character.name} must remain visually consistent with Reference 2: same face, age, hairstyle, period-appropriate Javanese clothing, and calm natural expression. ${character.prompt || ''}`,
+      `Place the visitors and ${character.name} naturally together in ${scene.name}, ${scene.location}. Preserve the recognizable museum architecture, camera perspective, and lighting from Reference 3. ${scene.prompt || ''}`,
+      `Use a realistic documentary photograph, eye-level camera, 50mm perspective, natural Indonesian skin texture, correct anatomy, correct hands, believable contact shadows, matching light direction, and a 3:2 landscape composition.`,
+      `No face replacement, face morphing, gender swap, beautification, plastic skin, extra limbs, duplicated faces, cutout edges, collage effect, text, captions, borders, logos, watermarks, or modern objects. Do not render the visitor names anywhere in the image.`,
     ].join(' ')
 
     const isImagesEndpoint = configuredModel.includes('gpt-image') ||
@@ -366,7 +365,10 @@ export function createApp(options = {}) {
           model: configuredModel,
           prompt: prompt,
           input_references: inputReferences,
-          aspect_ratio: '3:2'
+          aspect_ratio: '3:2',
+          quality: 'high',
+          background: 'opaque',
+          n: 1
         }),
         signal: AbortSignal.timeout(timeoutMs)
       })

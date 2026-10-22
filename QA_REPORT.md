@@ -1,6 +1,6 @@
 # QA report — Photobooth AI Museum R.A. Kartini
 
-Tanggal pemeriksaan: 14 Oktober 2026.
+Tanggal pemeriksaan: 22 Oktober 2026.
 
 ## Kesimpulan
 
@@ -44,6 +44,9 @@ membutuhkan satu tes kamera dan QR dari perangkat nyata setelah deploy.
 - `npm run build` berhasil dengan Vite.
 - Smoke test HTTP dengan generator mock menghasilkan `200`, `provider: gemini`,
   URL download PNG private, token TTL 60 detik, dan item galeri hanya berisi `thumbnailUrl`.
+- Uji OpenRouter nyata dengan `openai/gpt-image-2.5-flare` menghasilkan PNG valid
+  1536×1024 setelah prompt identity-lock dan parameter `quality: high`,
+  `background: opaque`, serta `n: 1` diterapkan.
 - Smoke test invalid MIME menghasilkan `415 UPLOAD_INVALID`.
 - Smoke test jumlah tamu tidak sesuai menghasilkan `400 GUESTS_INVALID`.
 - Smoke test quota menghasilkan `429` dengan pesan retry `30 detik` yang benar.
@@ -61,9 +64,10 @@ membutuhkan satu tes kamera dan QR dari perangkat nyata setelah deploy.
    saldo, rate limit, dan konsistensi wajah tetap perlu dilakukan di VPS.
 2. **P1 — Buku tamu.** SQLite dan export CSV ber-token tersedia. Integrasi
    Google Sheets dan panel admin penuh belum dibuat.
-3. **P1 — Reference library.** Asset lokal yang tersedia masih berupa gambar
-   komposit museum, bukan portrait reference terpisah untuk semua tokoh. Ini
-   membatasi konsistensi identitas output Gemini.
+3. **P1 — Reference library.** Referensi tokoh kini memakai crop portrait terpisah
+   di `public/assets/references`, sementara background memakai asset terpisah di
+   `public/assets/backgrounds`. Ini mengurangi orang sampingan ikut terbaca sebagai
+   identitas, tetapi model generatif tetap tidak dapat menjamin kemiripan pixel-perfect.
 4. **P2 — Print.** Tombol dan print CSS tersedia, tetapi printer fisik museum
    belum diuji.
 
