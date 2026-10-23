@@ -39,10 +39,14 @@ COPY --from=build /app/package.json ./package.json
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/public ./public
-# The server imports the data-driven scene/character catalog at runtime.
-# Copy only that module instead of the full source tree.
+# The server imports the catalog and shared visitor limit at runtime.
+# Keep these runtime modules explicit instead of copying the full source tree.
 COPY --from=build /app/src/data.js ./src/data.js
+COPY --from=build /app/src/config.js ./src/config.js
 COPY server ./server
 USER node
+# Resolve all server imports in the final image before it can be deployed.
+# Importing this module does not start the HTTP server or touch the data volume.
+RUN node --input-type=module -e "await import('./server/index.js')"
 EXPOSE 8787
 CMD ["node", "server/index.js"]

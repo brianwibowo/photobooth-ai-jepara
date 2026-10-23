@@ -2,6 +2,19 @@
 
 Tanggal pemeriksaan awal: 22 Oktober 2026.
 
+## Perbaikan startup Docker — 23 Oktober 2026
+
+Commit audit sebelumnya menambah import `src/config.js` pada server, tetapi
+Docker runtime hanya menyalin `src/data.js`. Build berhasil sementara startup
+gagal karena modul hilang. Dockerfile kini menyalin kedua modul dan menjalankan
+import server sebagai user `node` pada final image; build gagal bila dependency
+runtime belum lengkap. Tes regresi menyusun direktori terisolasi berdasarkan
+daftar COPY Dockerfile, memverifikasi import berhasil, lalu mereproduksi
+`ERR_MODULE_NOT_FOUND` saat config dihapus. Total **28 tes otomatis lulus**.
+Docker daemon lokal tidak berjalan, sehingga build/container Linux dan health
+VPS setelah deploy belum diverifikasi. Audit browser sebelumnya tetap terpisah
+dari pemeriksaan packaging runtime ini.
+
 ## Audit menyeluruh, pemulihan refresh, dan grup besar — 23 Oktober 2026
 
 Laporan lengkap: [docs/AUDIT_2026-10-23.md](docs/AUDIT_2026-10-23.md).
