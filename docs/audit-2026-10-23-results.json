@@ -1,0 +1,110 @@
+{
+  "scenarios": [
+    {
+      "name": "refresh/group-1/1366x768",
+      "status": "pass"
+    },
+    {
+      "name": "refresh/group-3/1366x768",
+      "status": "pass"
+    },
+    {
+      "name": "refresh/group-4/1920x1080",
+      "status": "pass"
+    },
+    {
+      "name": "refresh/group-6/1366x768",
+      "status": "pass"
+    },
+    {
+      "name": "refresh/group-8/1366x768",
+      "status": "pass"
+    },
+    {
+      "name": "refresh/group-1/390x844",
+      "status": "pass"
+    },
+    {
+      "name": "refresh/group-6/390x844",
+      "status": "pass"
+    },
+    {
+      "name": "refresh/group-6/1080x1920",
+      "status": "pass"
+    },
+    {
+      "name": "result/selected-museum-long-figure-name-and-unique-download",
+      "status": "pass"
+    },
+    {
+      "name": "negative/camera-denied",
+      "status": "pass"
+    },
+    {
+      "name": "negative/camera-missing",
+      "status": "pass"
+    },
+    {
+      "name": "negative/camera-unanswered",
+      "status": "pass"
+    },
+    {
+      "name": "negative/disconnect-countdown-idle-corrupt-storage",
+      "status": "pass"
+    },
+    {
+      "name": "negative/missing-cached-photo-and-provider-failure",
+      "status": "pass"
+    },
+    {
+      "name": "negative/photo-storage-blocked",
+      "status": "pass"
+    },
+    {
+      "name": "negative/session-storage-blocked-and-fresh-tab",
+      "status": "pass"
+    },
+    {
+      "name": "negative/lost-generation-response-recovers-without-resending",
+      "status": "pass"
+    },
+    {
+      "name": "negative/status-network-error-after-refresh",
+      "status": "pass"
+    },
+    {
+      "name": "negative/gallery-error-invalid-json-retry-and-refresh",
+      "status": "pass"
+    }
+  ],
+  "screenshots": [
+    "1366-768-group-1-camera.png",
+    "1366-768-group-1-restored-loading.png",
+    "1366-768-group-1-restored-result.png",
+    "1366-768-group-3-camera.png",
+    "1366-768-group-3-restored-loading.png",
+    "1366-768-group-3-restored-result.png",
+    "1920-1080-group-4-camera.png",
+    "1920-1080-group-4-restored-loading.png",
+    "1920-1080-group-4-restored-result.png",
+    "1366-768-group-6-camera.png",
+    "1366-768-group-6-restored-loading.png",
+    "1366-768-group-6-restored-result.png",
+    "1366-768-group-8-camera.png",
+    "1366-768-group-8-restored-loading.png",
+    "1366-768-group-8-restored-result.png",
+    "390-844-group-1-camera.png",
+    "390-844-group-1-restored-loading.png",
+    "390-844-group-1-restored-result.png",
+    "390-844-group-6-camera.png",
+    "390-844-group-6-restored-loading.png",
+    "390-844-group-6-restored-result.png",
+    "1080-1920-group-6-camera.png",
+    "1080-1920-group-6-restored-loading.png",
+    "1080-1920-group-6-restored-result.png",
+    "1366-768-selected-museum-figure-download.png"
+  ],
+  "providerCalls": 21,
+  "realAiCalls": 0,
+  "realEmails": 0
+}

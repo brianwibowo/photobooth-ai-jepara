@@ -34,7 +34,7 @@ for (const transport of ['gemini', 'openrouter-images', 'openrouter-chat']) {
     const base = `http://127.0.0.1:${server.address().port}`
     const expectedImage = async (asset) => (await sharp(fileURLToPath(new URL(`../public${asset}`, import.meta.url))).resize({ width: 1024, withoutEnlargement: true }).jpeg({ quality: 86 }).toBuffer()).toString('base64')
     for (const scene of scenes) {
-      for (const people of [undefined, 1]) {
+      for (const people of [undefined, 1, 3, 4, 6, 8]) {
         const form = new FormData()
         form.append('photo', new Blob([image], { type: 'image/png' }), 'photo.png')
         form.append('sceneId', scene.id); form.append('characterId', 'soesalit')
@@ -58,7 +58,7 @@ for (const transport of ['gemini', 'openrouter-images', 'openrouter-chat']) {
         assert.equal(references[2], await expectedImage(scene.background))
         if (scene.id !== 'gerbang') assert.match(scene.background, /empty-v1\.webp$/)
         assert.match(prompt, /exactly ONE Soesalit/)
-        assert.match(prompt, people === undefined ? /V \+ 1 people in total/ : /2 people in total/)
+        assert.match(prompt, people === undefined ? /V \+ 1 people in total/ : new RegExp(`${people + 1} people in total`))
         assert.match(prompt, /child historical figure remains a child/)
         assert.match(prompt, /PERSON-FREE environment plate/)
         assert.match(prompt, new RegExp(scene.name))

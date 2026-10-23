@@ -6,7 +6,7 @@ import path from 'node:path'
 import sharp from 'sharp'
 import { createApp } from '../server/index.js'
 
-test('result continuation reactivates the QR for 15 seconds only within the 10-second grace window', async (t) => {
+test('result continuation reactivates the QR once for 15 seconds, then expires without another grace window', async (t) => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'result-session-test-'))
   let current = Date.parse('2026-10-23T04:00:00Z')
   const image = await sharp({ create: { width: 640, height: 480, channels: 3, background: 'white' } }).png().toBuffer()
@@ -22,6 +22,11 @@ test('result continuation reactivates the QR for 15 seconds only within the 10-s
   const response = await fetch(base + '/api/generate', { method: 'POST', body: form })
   assert.equal(response.status, 200)
   const result = await response.json()
+  assert.equal(result.character.name, 'Soesalit')
+  assert.equal(result.scene.name, 'Membatik Bersama')
+  assert.equal(result.scene.location, 'Halaman museum')
+  assert.equal(result.filename, 'photobooth_kartini_000001.png')
+  assert.match((await fetch(base + result.imageUrl)).headers.get('content-disposition'), /filename="photobooth_kartini_000001.png"/)
   const endpoint = base + result.session.extendEndpoint
   assert.equal(result.session.graceSeconds, 10)
   assert.equal(result.session.extensionSeconds, 15)
@@ -40,10 +45,12 @@ test('result continuation reactivates the QR for 15 seconds only within the 10-s
   assert.match(continuations[0].headers.get('cache-control'), /no-store/)
   assert.equal(Date.parse(payloads[0].downloadExpiresAt), current + 15000)
   assert.deepEqual(payloads[0], payloads[1])
+  assert.equal(payloads[0].continuationUsed, true)
   assert.equal((await fetch(base + result.imageUrl)).status, 200)
   assert.equal((await emailPost()).status, 202)
   current += 15000
   assert.equal((await fetch(base + result.imageUrl)).status, 410)
+  assert.equal((await fetch(endpoint, { method: 'POST' })).status, 410)
   current += 10000
   assert.equal((await fetch(endpoint, { method: 'POST' })).status, 410)
   assert.equal((await fetch(base + '/api/results/unknown/extend', { method: 'POST' })).status, 404)
@@ -52,7 +59,7 @@ test('result continuation reactivates the QR for 15 seconds only within the 10-s
   const token = result.imageUrl.split('/').pop()
   instance.db.prepare('UPDATE results SET download_expires_at = ?, expires_at = ? WHERE token = ?').run(new Date(current - 1000).toISOString(), new Date(current - 1).toISOString(), token)
   assert.equal((await fetch(endpoint, { method: 'POST' })).status, 410)
-  instance.db.prepare('UPDATE results SET expires_at = ? WHERE token = ?').run(new Date(current + 5000).toISOString(), token)
+  instance.db.prepare('UPDATE results SET expires_at = ?, continuation_used = 0 WHERE token = ?').run(new Date(current + 5000).toISOString(), token)
   const capped = await (await fetch(endpoint, { method: 'POST' })).json()
   assert.equal(Date.parse(capped.downloadExpiresAt), current + 5000)
 })

@@ -3,13 +3,16 @@ import { createRoot } from 'react-dom/client'
 import QRCode from 'qrcode'
 import { characters, scenes, logos } from './data'
 import './styles.css'
+import { MAX_VISITORS } from './config.js'
+import { IDLE_MS, readSnapshot, writeSnapshot, clearSnapshot, savePhoto, loadPhoto, removePhoto, cleanupPhotos } from './session-store.js'
 
 const STEPS = ['scene', 'character', 'camera', 'confirm']
 const STEP_LABELS = ['Tempat', 'Tokoh', 'Foto', 'Cek foto']
-const SESSION_IDLE_MS = 2 * 60 * 1000
+const SESSION_IDLE_MS = IDLE_MS
 const CAPTURE_COUNTDOWN_SECONDS = 7
 
 function App() {
+  const [hydrated, setHydrated] = useState(false)
   const [screen, setScreen] = useState('home')
   const [sceneId, setSceneId] = useState(null)
   const [characterId, setCharacterId] = useState(null)
@@ -22,6 +25,10 @@ function App() {
   const [galleryError, setGalleryError] = useState('')
   const [error, setError] = useState('')
   const [isGalleryOpen, setIsGalleryOpen] = useState(false)
+  const [galleryExpiresAt, setGalleryExpiresAt] = useState(0)
+  const [galleryDetail, setGalleryDetail] = useState(null)
+  const [requestId, setRequestId] = useState(null)
+  const [generationNotice, setGenerationNotice] = useState('')
   const [isBusy, setIsBusy] = useState(false)
   const [qrData, setQrData] = useState('')
   const [cameraReady, setCameraReady] = useState(false)
@@ -38,49 +45,122 @@ function App() {
   const streamRef = useRef(null)
   const cameraRequestRef = useRef(0)
   const photoUrlRef = useRef(null)
+  const sessionIdRef = useRef(null)
+  if (!sessionIdRef.current) sessionIdRef.current = crypto.randomUUID()
+  const idleExpiresRef = useRef(0)
+  const requestStartedRef = useRef(0)
+  const snapshotRef = useRef(null)
+  const captureBusyRef = useRef(false)
 
   const scene = useMemo(() => scenes.find((item) => item.id === sceneId) || null, [sceneId])
   const character = useMemo(() => characters.find((item) => item.id === characterId) || null, [characterId])
   const stepIndex = Math.max(0, STEPS.indexOf(screen))
 
+  useEffect(() => {
+    let cancelled = false
+    const controller = new AbortController()
+    const restore = async () => {
+      void cleanupPhotos().catch(() => {})
+      const saved = readSnapshot()
+      if (!saved) { clearSnapshot(); setHydrated(true); return }
+      sessionIdRef.current = saved.id
+      idleExpiresRef.current = saved.idleExpiresAt || Date.now() + SESSION_IDLE_MS
+      requestStartedRef.current = saved.requestStartedAt || Date.now()
+      let restoredScreen = saved.screen
+      let restoredResult = saved.result || null
+      let restoredRequestId = saved.requestId || null
+      let notice = ''
+      let blob = null
+      if (['confirm', 'generating', 'camera'].includes(restoredScreen)) {
+        try { blob = await loadPhoto(saved.id) } catch { /* return to camera if unavailable */ }
+        if (!(blob instanceof Blob) || blob.size === 0 || blob.size > 8 * 1024 * 1024 || !/^image\/(jpeg|png|webp)$/.test(blob.type)) blob = null
+      }
+      if (cancelled) return
+      if (['generating', 'result'].includes(restoredScreen) && restoredRequestId) {
+        const timeout = window.setTimeout(() => controller.abort(), 6000)
+        try {
+          const response = await fetch(`/api/generations/${restoredRequestId}`, { signal: controller.signal, cache: 'no-store' })
+          const payload = await response.json()
+          if (response.status === 410 || (response.status === 404 && restoredScreen === 'result')) {
+            clearSnapshot(); void removePhoto(saved.id).catch(() => {}); setHydrated(true); return
+          }
+          if (payload.status === 'complete' && validResult(payload.result)) { restoredResult = payload.result; restoredScreen = 'result' }
+          else if (payload.status === 'failed') { restoredRequestId = null; restoredScreen = blob ? 'confirm' : 'camera'; notice = payload.error }
+        } catch {
+          notice = 'Sesi dipulihkan. Koneksi ke server belum dapat diperiksa.'
+        } finally { window.clearTimeout(timeout) }
+      }
+      if (cancelled) return
+      if (restoredScreen === 'result') {
+        const expiry = Date.parse(restoredResult?.downloadExpiresAt || '')
+        if (!Number.isFinite(expiry) || Date.now() >= expiry + (restoredResult.session?.graceSeconds ?? 10) * 1000) { clearSnapshot(); void removePhoto(saved.id).catch(() => {}); setHydrated(true); return }
+      } else {
+        if (!saved.sceneId && restoredScreen !== 'home') restoredScreen = 'scene'
+        else if (!saved.characterId && ['camera', 'confirm', 'generating'].includes(restoredScreen)) restoredScreen = 'character'
+        else if (restoredScreen === 'confirm' && !blob) { restoredScreen = 'camera'; notice = 'Foto sebelumnya belum tersedia. Silakan ambil ulang.' }
+        else if (restoredScreen === 'generating' && !restoredRequestId) { restoredScreen = blob ? 'confirm' : 'camera'; notice = 'Permintaan sebelumnya belum tercatat. Periksa foto sebelum mencoba lagi.' }
+      }
+      if (blob) { setPhotoFile(new File([blob], 'capture.jpg', { type: blob.type || 'image/jpeg' })); replacePhoto(URL.createObjectURL(blob)) }
+      if (saved.screen === 'generating' && restoredScreen !== 'generating' && restoredScreen !== 'result') idleExpiresRef.current = Date.now() + SESSION_IDLE_MS
+      setSceneId(saved.sceneId); setCharacterId(saved.characterId); setPeople(saved.people)
+      setRequestId(restoredRequestId); setResult(restoredResult); setScreen(restoredScreen)
+      setIsBusy(restoredScreen === 'generating'); setGenerationNotice(notice); setError(notice)
+      const galleryActive = saved.galleryOpen && saved.galleryExpiresAt > Date.now()
+      setIsGalleryOpen(Boolean(galleryActive)); setGalleryExpiresAt(saved.galleryExpiresAt || 0)
+      if (galleryActive && saved.galleryDetail && /^\/(api\/gallery\/image|assets)\//.test(saved.galleryDetail.src)) setGalleryDetail(saved.galleryDetail)
+      setHydrated(true)
+    }
+    void restore()
+    return () => { cancelled = true; controller.abort() }
+  }, [])
+  useEffect(() => {
+    if (!hydrated) return
+    snapshotRef.current = { id: sessionIdRef.current, screen, sceneId, characterId, people, requestId, requestStartedAt: requestStartedRef.current, result, idleExpiresAt: idleExpiresRef.current, galleryOpen: isGalleryOpen, galleryExpiresAt, galleryDetail }
+    writeSnapshot(snapshotRef.current)
+  }, [hydrated, screen, sceneId, characterId, people, requestId, result, isGalleryOpen, galleryExpiresAt, galleryDetail])
+  useEffect(() => {
+    const save = () => { if (snapshotRef.current) writeSnapshot({ ...snapshotRef.current, idleExpiresAt: idleExpiresRef.current }) }
+    window.addEventListener('pagehide', save)
+    return () => window.removeEventListener('pagehide', save)
+  }, [])
   useEffect(() => () => { stopCamera(); generateControllerRef.current?.abort(); resultExtensionRef.current?.abort(); clearTimeout(idleTimerRef.current); clearTimeout(galleryTimerRef.current); clearInterval(resultTimerRef.current); if (photoUrlRef.current) URL.revokeObjectURL(photoUrlRef.current) }, [])
   useEffect(() => { window.scrollTo(0, 0) }, [screen])
   useEffect(() => { if (isGalleryOpen) loadGallery() }, [isGalleryOpen])
   useEffect(() => {
     clearTimeout(galleryTimerRef.current)
     if (!isGalleryOpen) return undefined
-    galleryTimerRef.current = window.setTimeout(() => setIsGalleryOpen(false), 45 * 1000)
+    galleryTimerRef.current = window.setTimeout(closeGallery, Math.max(0, galleryExpiresAt - Date.now()))
     return () => clearTimeout(galleryTimerRef.current)
-  }, [isGalleryOpen])
+  }, [isGalleryOpen, galleryExpiresAt])
   useEffect(() => {
     if (result?.qrUrl) QRCode.toDataURL(result.qrUrl, { width: 280, margin: 1, color: { dark: '#173e40', light: '#ffffff' } }).then(setQrData)
   }, [result?.qrUrl])
   useEffect(() => {
     clearTimeout(idleTimerRef.current)
-    if (screen === 'home' || screen === 'result' || screen === 'generating') return undefined
+    if (!hydrated || screen === 'home' || screen === 'result' || screen === 'generating') return undefined
+    const schedule = () => { clearTimeout(idleTimerRef.current); idleTimerRef.current = window.setTimeout(newSession, Math.max(0, idleExpiresRef.current - Date.now())) }
     const armIdleReset = () => {
-      clearTimeout(idleTimerRef.current)
-      idleTimerRef.current = window.setTimeout(() => newSession(), SESSION_IDLE_MS)
+      idleExpiresRef.current = Date.now() + SESSION_IDLE_MS
+      if (snapshotRef.current) writeSnapshot({ ...snapshotRef.current, idleExpiresAt: idleExpiresRef.current })
+      schedule()
     }
     const events = ['pointerdown', 'keydown', 'touchstart']
     events.forEach((event) => document.addEventListener(event, armIdleReset, { passive: true }))
-    armIdleReset()
-    return () => {
-      clearTimeout(idleTimerRef.current)
-      events.forEach((event) => document.removeEventListener(event, armIdleReset))
-    }
-  }, [screen])
+    schedule()
+    return () => { clearTimeout(idleTimerRef.current); events.forEach((event) => document.removeEventListener(event, armIdleReset)) }
+  }, [screen, hydrated])
   useEffect(() => {
     clearInterval(resultTimerRef.current)
     if (screen !== 'result' || !result) return undefined
     const parsed = Date.parse(result.downloadExpiresAt || '')
     const expiry = Number.isFinite(parsed) ? parsed : Date.now() + 60000
-    const graceMs = (result.session?.graceSeconds ?? 10) * 1000
+    const graceMs = result.session?.continuationUsed ? 0 : (result.session?.graceSeconds ?? 10) * 1000
     const update = () => {
       const current = Date.now()
       setResultRemaining(Math.max(0, Math.ceil((expiry - current) / 1000)))
       if (current < expiry) { setResultResetRemaining(null); return }
       setIsGalleryOpen(false)
+      if (result.session?.continuationUsed) { newSession(); return }
       const resetRemaining = Math.max(0, Math.ceil((expiry + graceMs - current) / 1000))
       setResultResetRemaining(resetRemaining)
       if (resetRemaining <= 0) newSession()
@@ -90,26 +170,29 @@ function App() {
     return () => clearInterval(resultTimerRef.current)
   }, [screen, result])
 
-  function go(next) { setError(''); setScreen(next) }
+  function go(next) { idleExpiresRef.current = Date.now() + SESSION_IDLE_MS; setError(''); setScreen(next) }
+  function openGallery() { setGalleryDetail(null); setGalleryExpiresAt(Date.now() + 45000); setIsGalleryOpen(true) }
+  function closeGallery() { setGalleryDetail(null); setIsGalleryOpen(false); setGalleryExpiresAt(0) }
   function replacePhoto(nextUrl) {
     if (photoUrlRef.current) URL.revokeObjectURL(photoUrlRef.current)
     photoUrlRef.current = nextUrl || null
     setPhoto(nextUrl)
   }
-  function begin() { stopCamera(); setResult(null); replacePhoto(null); setPhotoFile(null); setSceneId(null); setPeople(null); setCharacterId(null); go('scene') }
+  function begin() { snapshotRef.current = null; clearSnapshot(); void removePhoto(sessionIdRef.current).catch(() => {}); sessionIdRef.current = crypto.randomUUID(); setRequestId(null); stopCamera(); setResult(null); replacePhoto(null); setPhotoFile(null); setSceneId(null); setPeople(null); setCharacterId(null); go('scene') }
   function chooseScene(id) {
     const selected = scenes.find((item) => item.id === id)
     if (!selected) return
+    if (sceneId !== id) setRequestId(null)
     setSceneId(id)
     if (!selected.characterIds.includes(characterId)) setCharacterId(null)
   }
   async function startCamera() {
+    stopCamera()
+    const activeRequestId = ++cameraRequestRef.current
     setError('')
     setCameraReady(false)
     try {
       if (!navigator.mediaDevices?.getUserMedia) throw new Error('Kamera tidak tersedia di perangkat ini.')
-      stopCamera()
-      const activeRequestId = ++cameraRequestRef.current
       const request = navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false })
       let timeoutId
       let stream
@@ -131,37 +214,89 @@ function App() {
       if (activeRequestId !== cameraRequestRef.current) return stream.getTracks().forEach((track) => track.stop())
       streamRef.current = stream
       if (videoRef.current) videoRef.current.srcObject = streamRef.current
+      stream.getVideoTracks().forEach((track) => track.addEventListener('ended', () => { if (streamRef.current === stream) { stopCamera(); setError('Kamera terputus. Sambungkan kembali lalu aktifkan kamera.') } }))
       setCameraReady(true)
-    } catch (err) { setCameraReady(false); setError(`${err.message} Kamera wajib aktif untuk membuat foto kenangan.`) }
+    } catch (err) {
+      if (activeRequestId !== cameraRequestRef.current) return
+      const messages = { NotAllowedError: 'Izin kamera ditolak. Izinkan kamera di pengaturan browser, lalu coba lagi.', NotFoundError: 'Kamera tidak ditemukan. Sambungkan kamera, lalu coba lagi.', NotReadableError: 'Kamera tidak dapat dibuka. Tutup aplikasi lain yang sedang memakai kamera.', OverconstrainedError: 'Pengaturan kamera tidak tersedia pada perangkat ini.' }
+      setCameraReady(false); setError(messages[err.name] || `${err.message} Kamera wajib aktif untuk membuat foto kenangan.`)
+    }
   }
-  function stopCamera() { cameraRequestRef.current += 1; streamRef.current?.getTracks().forEach((track) => track.stop()); streamRef.current = null; setCameraReady(false) }
+  function stopCamera() { cameraRequestRef.current += 1; captureBusyRef.current = false; streamRef.current?.getTracks().forEach((track) => track.stop()); streamRef.current = null; setCameraReady(false) }
   function capturePhoto() {
+    if (captureBusyRef.current) return
     const video = videoRef.current
-    if (!video?.videoWidth) return setError('Tunggu sampai kamera siap, lalu coba lagi.')
+    if (!cameraReady || !video?.videoWidth || video.readyState < 2 || !streamRef.current?.getVideoTracks().some((track) => track.readyState === 'live')) return setError('Tunggu sampai kamera siap, lalu coba lagi.')
+    const activeRequest = cameraRequestRef.current
+    const activeSession = sessionIdRef.current
+    captureBusyRef.current = true
     const canvas = document.createElement('canvas'); canvas.width = video.videoWidth; canvas.height = video.videoHeight
     const ctx = canvas.getContext('2d')
-    ctx.translate(canvas.width, 0)
-    ctx.scale(-1, 1)
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
-    canvas.toBlob((blob) => { if (!blob) return setError('Foto belum siap. Coba ambil ulang.'); const file = new File([blob], 'capture.jpg', { type: 'image/jpeg' }); setPhotoFile(file); replacePhoto(URL.createObjectURL(blob)); stopCamera(); go('confirm') }, 'image/jpeg', 0.9)
+    ctx.translate(canvas.width, 0); ctx.scale(-1, 1); ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
+    canvas.toBlob(async (blob) => {
+      if (activeRequest !== cameraRequestRef.current || activeSession !== sessionIdRef.current) return
+      if (!blob) { captureBusyRef.current = false; return setError('Foto belum siap. Coba ambil ulang.') }
+      const file = new File([blob], 'capture.jpg', { type: 'image/jpeg' })
+      try { await savePhoto(activeSession, file) } catch { /* allow capture even if browser storage is blocked */ }
+      if (activeRequest !== cameraRequestRef.current || activeSession !== sessionIdRef.current) { void removePhoto(activeSession).catch(() => {}); return }
+      setRequestId(null); setPhotoFile(file); replacePhoto(URL.createObjectURL(blob)); stopCamera(); go('confirm')
+    }, 'image/jpeg', 0.9)
   }
+  function validResult(payload) { return payload && /^\/api\/download\/[A-Za-z0-9_-]+$/.test(payload.imageUrl) && typeof payload.qrUrl === 'string' && Number.isFinite(Date.parse(payload.downloadExpiresAt)) }
+  function receiveResult(payload) {
+    if (!validResult(payload)) throw new Error('Respons hasil foto belum valid. Silakan periksa status lagi.')
+    setResult(payload); setQrData(''); setIsBusy(false); setGenerationNotice(''); go('result')
+  }
+  useEffect(() => {
+    if (!hydrated || screen !== 'generating' || !requestId) return undefined
+    let stopped = false; let timer; let controller; let missing = 0
+    const poll = async () => {
+      controller = new AbortController()
+      const timeout = window.setTimeout(() => controller.abort(), 8000)
+      try {
+        const response = await fetch(`/api/generations/${requestId}`, { signal: controller.signal, cache: 'no-store' })
+        const payload = await response.json()
+        if (stopped) return
+        if (response.status === 410) { newSession(); return }
+        if (payload.status === 'complete') { receiveResult(payload.result); return }
+        if (payload.status === 'failed') { setRequestId(null); setIsBusy(false); go(photoFile ? 'confirm' : 'camera'); setError(payload.error); return }
+        if (response.status === 404) missing += 1
+        else if (!response.ok && response.status !== 202) throw new Error('Status proses belum dapat diperiksa.')
+        if (Date.now() - requestStartedRef.current > 360000) setGenerationNotice('Proses belum selesai. Kamu boleh kembali ke cek foto; permintaan yang sama tetap akan diperiksa saat mencoba lagi.')
+        if (missing >= 4 && !generateControllerRef.current) { setIsBusy(false); go(photoFile ? 'confirm' : 'camera'); setError('Permintaan belum terkonfirmasi. Coba lagi untuk memeriksa permintaan yang sama.'); return }
+      } catch { if (!stopped) setGenerationNotice('Koneksi belum merespons. Kami memeriksa proses yang sama; tidak mengirim generasi baru.') }
+      finally { window.clearTimeout(timeout) }
+      if (!stopped) timer = window.setTimeout(poll, 2000)
+    }
+    timer = window.setTimeout(poll, 1000)
+    return () => { stopped = true; clearTimeout(timer); controller?.abort() }
+  }, [hydrated, screen, requestId])
   async function generate() {
-    if (isBusy) return
+    if (isBusy || generateControllerRef.current) return
     if (!photoFile || !scene || !character) return setError('Foto, tempat, dan tokoh wajib dipilih.')
-    setError(''); setScreen('generating'); setIsBusy(true)
+    const id = requestId || crypto.randomUUID()
+    if (!requestId) requestStartedRef.current = Date.now()
+    setRequestId(id); setError(''); setGenerationNotice(''); setScreen('generating'); setIsBusy(true)
     const body = new FormData(); body.append('photo', photoFile); body.append('sceneId', scene.id); body.append('characterId', character.id)
     if (people !== null) body.append('people', String(people))
     const controller = new AbortController(); generateControllerRef.current = controller
+    const activeSession = sessionIdRef.current
+    // Store the receipt before sending, even if the browser reloads before React commits.
+    snapshotRef.current = { ...snapshotRef.current, id: activeSession, screen: 'generating', sceneId, characterId, people, requestId: id, requestStartedAt: requestStartedRef.current, result: null, idleExpiresAt: idleExpiresRef.current, galleryOpen: false }
+    writeSnapshot(snapshotRef.current)
     try {
-      const response = await fetch('/api/generate', { method: 'POST', body, signal: controller.signal })
+      const response = await fetch('/api/generate', { method: 'POST', headers: { 'x-generation-id': id }, body, signal: controller.signal })
       const payload = await response.json().catch(() => ({}))
-      if (!response.ok) throw new Error(payload.error || 'Generasi foto gagal.')
-      setResult(payload); setQrData(''); go('result')
+      if (controller.signal.aborted || activeSession !== sessionIdRef.current) return
+      if (response.status === 202) { setGenerationNotice('Proses sebelumnya masih berjalan. Menunggu hasil yang sama…'); return }
+      if (!response.ok) {
+        if (payload.status === 'failed' || (response.status < 500 && payload.code !== 'GENERATION_RATE_LIMITED')) setRequestId(null)
+        setIsBusy(false); go('confirm'); setError(payload.error || 'Generasi foto belum terkonfirmasi. Coba lagi untuk memeriksa permintaan yang sama.'); return
+      }
+      receiveResult(payload)
     } catch (err) {
-      if (err.name === 'AbortError') return
-      setScreen('confirm')
-      setError(err.message || 'Generasi foto gagal. Coba lagi tanpa mengulang pilihan dan foto.')
-    } finally { generateControllerRef.current = null; setIsBusy(false) }
+      if (!controller.signal.aborted && activeSession === sessionIdRef.current) setGenerationNotice(err.message || 'Koneksi terputus. Memeriksa proses yang sama…')
+    } finally { if (generateControllerRef.current === controller) generateControllerRef.current = null }
   }
   async function loadGallery() {
     setGalleryLoading(true); setGalleryError('')
@@ -170,6 +305,7 @@ function App() {
       const payload = await response.json().catch(() => null)
       if (!response.ok || !payload || !Array.isArray(payload.items)) throw new Error(payload?.error || 'Galeri tidak dapat dimuat. Coba lagi.')
       setGallery(payload.items.slice(0, 8))
+      setGalleryDetail((current) => current && payload.items.some((item) => (item.thumbnailUrl || item.imageUrl) === current.src) ? { ...current, index: payload.items.findIndex((item) => (item.thumbnailUrl || item.imageUrl) === current.src) } : null)
     } catch (err) {
       setGallery([])
       setGalleryError(err.message || 'Galeri tidak dapat dimuat. Coba lagi.')
@@ -187,7 +323,7 @@ function App() {
       if (!response.ok) throw new Error(payload.error || 'Waktu belum berhasil ditambah. Coba lagi.')
       if (!Number.isFinite(Date.parse(payload.downloadExpiresAt)) || Date.parse(payload.downloadExpiresAt) <= Date.now()) throw new Error('Waktu QR belum berhasil diperbarui. Coba lagi.')
       if (controller.signal.aborted) return
-      setResult((current) => current?.imageUrl === result.imageUrl ? { ...current, downloadExpiresAt: payload.downloadExpiresAt } : current)
+      setResult((current) => current?.imageUrl === result.imageUrl ? { ...current, downloadExpiresAt: payload.downloadExpiresAt, session: { ...current.session, continuationUsed: Boolean(payload.continuationUsed), graceSeconds: payload.continuationUsed ? 0 : 10 } } : current)
       setResultResetRemaining(null)
     } catch (err) {
       if (resultExtensionRef.current === controller) setResultSessionError(err.name === 'AbortError' ? 'Koneksi belum merespons. Coba lagi sebelum sesi berakhir.' : err.message)
@@ -196,19 +332,21 @@ function App() {
       if (resultExtensionRef.current === controller) { resultExtensionRef.current = null; setResultExtending(false) }
     }
   }
-  function newSession() { stopCamera(); generateControllerRef.current?.abort(); resultExtensionRef.current?.abort(); resultExtensionRef.current = null; clearInterval(resultTimerRef.current); setResultResetRemaining(null); setResultExtending(false); setResultSessionError(''); setIsGalleryOpen(false); setResult(null); setQrData(''); setError(''); replacePhoto(null); setPhotoFile(null); setSceneId(null); setPeople(null); setCharacterId(null); go('home') }
+  function newSession() { const oldId = sessionIdRef.current; snapshotRef.current = null; clearSnapshot(); void removePhoto(oldId).catch(() => {}); sessionIdRef.current = crypto.randomUUID(); idleExpiresRef.current = 0; requestStartedRef.current = 0; setRequestId(null); setIsBusy(false); setGenerationNotice(''); closeGallery(); stopCamera(); generateControllerRef.current?.abort(); generateControllerRef.current = null; resultExtensionRef.current?.abort(); resultExtensionRef.current = null; clearInterval(resultTimerRef.current); setResultResetRemaining(null); setResultExtending(false); setResultSessionError(''); setIsGalleryOpen(false); setResult(null); setQrData(''); setError(''); replacePhoto(null); setPhotoFile(null); setSceneId(null); setPeople(null); setCharacterId(null); go('home') }
+
+  if (!hydrated) return <main className="generating screen-content"><p role="status">Memulihkan sesi…</p></main>
 
   return <div className="app-shell">
-    {screen === 'home' && <Home onStart={begin} onGallery={() => setIsGalleryOpen(true)} />}
+    {screen === 'home' && <Home onStart={begin} onGallery={openGallery} />}
     {screen === 'scene' && <ScenePicker scene={scene} onSelect={chooseScene} onNext={() => { if (scene) go('character') }} onBack={newSession} />}
-    {screen === 'character' && <CharacterPicker scene={scene} character={character} onSelect={setCharacterId} onNext={() => { if (scene && character) go('camera') }} onBack={() => go('scene')} />}
-    {screen === 'camera' && <CameraScreen people={people} onPeople={setPeople} videoRef={videoRef} cameraReady={cameraReady} onStart={startCamera} onStop={stopCamera} onCapture={capturePhoto} onBack={() => { stopCamera(); go('character') }} error={error} />}
+    {screen === 'character' && <CharacterPicker scene={scene} character={character} onSelect={(id) => { if (id !== characterId) setRequestId(null); setCharacterId(id) }} onNext={() => { if (scene && character) go('camera') }} onBack={() => go('scene')} />}
+    {screen === 'camera' && <CameraScreen people={people} onPeople={(value) => { setRequestId(null); setPeople(value) }} videoRef={videoRef} cameraReady={cameraReady} onStart={startCamera} onStop={stopCamera} onCapture={capturePhoto} onBack={() => { stopCamera(); go('character') }} error={error || generationNotice} />}
     {screen === 'confirm' && <ConfirmScreen people={people} photo={photo} scene={scene} character={character} onBack={() => go('camera')} onGenerate={generate} error={error} />}
-    {screen === 'generating' && <GeneratingScreen photo={photo} />}
-    {screen === 'result' && <ResultScreen result={result} qrData={qrData} remaining={resultRemaining} onNew={newSession} onGallery={() => setIsGalleryOpen(true)} onPrint={() => window.print()} />}
+    {screen === 'generating' && <GeneratingScreen photo={photo} notice={generationNotice} onBack={() => { generateControllerRef.current?.abort(); generateControllerRef.current = null; setIsBusy(false); go(photoFile ? 'confirm' : 'camera') }} />}
+    {screen === 'result' && <ResultScreen result={result} qrData={qrData} remaining={resultRemaining} notice={error} onNew={newSession} onGallery={openGallery} onPrint={() => window.print()} />}
 
     {STEPS.includes(screen) && <Progress current={stepIndex} />}
-    {isGalleryOpen && <GalleryModal items={gallery} loading={galleryLoading} error={galleryError} onRetry={loadGallery} onClose={() => setIsGalleryOpen(false)} />}
+    {isGalleryOpen && <GalleryModal items={gallery} loading={galleryLoading} error={galleryError} onRetry={loadGallery} onClose={closeGallery} selectedPhoto={galleryDetail} onPhotoSelect={setGalleryDetail} />}
     {screen === 'result' && resultResetRemaining !== null && <ResultExpiryDialog remaining={resultResetRemaining} extending={resultExtending} error={resultSessionError} canExtend={Boolean(result?.session?.extendEndpoint)} onContinue={extendResultSession} onExit={newSession} />}
   </div>
 }
@@ -260,6 +398,7 @@ function CameraScreen({ people, onPeople, videoRef, cameraReady, onStart, onStop
   const [countdown, setCountdown] = useState(null)
   const countdownTimerRef = useRef(null)
   useEffect(() => { onStart(); return () => { window.clearInterval(countdownTimerRef.current); onStop() } }, [])
+  useEffect(() => { if (!cameraReady) { window.clearInterval(countdownTimerRef.current); setCountdown(null) } }, [cameraReady])
   function captureWithCountdown() {
     if (countdown !== null) return
     let value = CAPTURE_COUNTDOWN_SECONDS
@@ -273,7 +412,8 @@ function CameraScreen({ people, onPeople, videoRef, cameraReady, onStart, onStop
   return <main className="flow screen-content horizontal-flow camera-screen"><FlowHeading kicker="03 / AMBIL FOTO" title={<>Senyum, ini akan<br /><em>jadi kenangan.</em></>} copy={`Pastikan semua wajah terlihat. Sentuh Ambil foto, lalu lihat ke kamera selama hitung mundur ${CAPTURE_COUNTDOWN_SECONDS} detik.`}>
     <fieldset className="capture-people" disabled={countdown !== null}>
       <legend>Jumlah pengunjung <small>opsional</small></legend>
-      <div className="capture-people-options">{[null, 1, 2, 3].map((count) => <button type="button" key={count ?? 'photo'} aria-pressed={people === count} aria-label={count === null ? 'Ikuti jumlah orang di foto' : `${count} pengunjung`} onClick={() => onPeople(count)}>{count === null ? 'Ikuti foto' : count}</button>)}</div>
+      <div className="capture-people-options">{[null, 1, 2, 3, 4].map((count) => <button type="button" key={count ?? 'photo'} aria-pressed={people === count} aria-label={count === null ? 'Ikuti jumlah orang di foto' : `${count} pengunjung`} onClick={() => onPeople(count)}>{count === null ? 'Ikuti foto' : count}</button>)}</div>
+      <label className="capture-group-select">Grup lebih besar<select aria-label="Jumlah pengunjung lebih dari empat" value={people > 4 ? people : ''} onChange={(event) => onPeople(Number(event.target.value))}><option value="" disabled>5 orang atau lebih</option>{Array.from({ length: MAX_VISITORS - 4 }, (_, index) => index + 5).map((count) => <option key={count} value={count}>{count} pengunjung</option>)}</select></label>
       <p>Tidak termasuk tokoh pilihanmu.</p>
     </fieldset>
   </FlowHeading><div className="camera-stage"><video ref={videoRef} autoPlay playsInline muted /><div className="camera-guide"><span /><span /><span /><span /></div>{countdown !== null && <div className="camera-countdown" aria-live="assertive">{countdown}</div>}<div className="camera-hint">{cameraReady ? 'Kamera siap · pastikan wajah terlihat jelas' : 'Menunggu izin kamera…'}</div></div><div className="flow-footer">{error && <ErrorMessage text={error} />}<div className="camera-actions"><BackButton onClick={onBack} /><button className="button primary capture-button" onClick={captureWithCountdown} disabled={!cameraReady || countdown !== null}>{countdown !== null ? `Bersiap… ${countdown}` : 'Ambil foto'} <span>◉</span></button>{!cameraReady && <button className="button secondary camera-start" onClick={onStart}>Aktifkan kamera <span>↗</span></button>}</div></div></main>
@@ -290,24 +430,37 @@ const GENERATING_MESSAGES = [
   { title: 'Menanti potret', emphasis: 'kenanganmu…', note: 'AI masih mengolah foto. Tetap di sini sampai hasilnya tampil.' },
 ]
 
-function GeneratingScreen({ photo }) {
+function GeneratingScreen({ photo, notice, onBack }) {
   const [messageIndex, setMessageIndex] = useState(0)
   useEffect(() => {
     const timer = window.setInterval(() => setMessageIndex((index) => (index + 1) % GENERATING_MESSAGES.length), 5000)
     return () => window.clearInterval(timer)
   }, [])
   const message = GENERATING_MESSAGES[messageIndex]
-  return <main className="generating screen-content"><div className="generating-photo"><img src={photo} alt="Foto seluruh pengunjung yang sedang diproses" /></div><p className="eyebrow">FOTO SEDANG DIPROSES</p><div className="generating-message" role="status" aria-live="polite" aria-atomic="true"><h1>{message.title}<br /><em>{message.emphasis}</em></h1><p className="generating-note">{message.note}</p></div><div className="loading-line"><span /></div><small>Waktu proses dapat berbeda untuk setiap foto.</small></main>
+  return <main className="generating screen-content"><div className="generating-photo">{photo ? <img src={photo} alt="Foto seluruh pengunjung yang sedang diproses" /> : <p role="status">Memeriksa hasil foto…</p>}</div><p className="eyebrow">FOTO SEDANG DIPROSES</p><div className="generating-message" role="status" aria-live="polite" aria-atomic="true"><h1>{message.title}<br /><em>{message.emphasis}</em></h1><p className="generating-note">{message.note}</p></div><div className="loading-line"><span /></div><small>Waktu proses dapat berbeda untuk setiap foto.</small>{notice && <div className="generation-recovery" role="status"><p>{notice}</p><button className="text-button" onClick={onBack}>Kembali ke cek foto</button></div>}</main>
 }
 
 function EmailPhotoForm({ delivery, sessionExpiresAt }) {
   const [email, setEmail] = useState('')
   const [status, setStatus] = useState('idle')
   const [busy, setBusy] = useState(false)
+  const [checking, setChecking] = useState(Boolean(delivery?.available))
   const [error, setError] = useState('')
   const pollTimerRef = useRef(null)
   const mountedRef = useRef(true)
   const requestRef = useRef(null)
+  useEffect(() => {
+    if (!delivery?.available) return undefined
+    let cancelled = false
+    const controller = new AbortController()
+    const timeout = window.setTimeout(() => controller.abort(), 8000)
+    setChecking(true)
+    fetch(delivery.endpoint, { signal: controller.signal, cache: 'no-store' }).then(async (response) => {
+      const payload = await response.json()
+      if (!cancelled && response.ok && ['idle', 'queued', 'sending', 'sent', 'failed', 'unknown'].includes(payload.status)) setStatus(payload.status)
+    }).catch(() => {}).finally(() => { clearTimeout(timeout); if (!cancelled) setChecking(false) })
+    return () => { cancelled = true; clearTimeout(timeout); controller.abort() }
+  }, [delivery?.endpoint, sessionExpiresAt])
   useEffect(() => () => {
     mountedRef.current = false
     clearTimeout(pollTimerRef.current)
@@ -333,7 +486,7 @@ function EmailPhotoForm({ delivery, sessionExpiresAt }) {
 
   async function submit(event) {
     event.preventDefault()
-    if (busy || status !== 'idle') return
+    if (busy || checking || status !== 'idle') return
     setBusy(true); setError('')
     const controller = new AbortController(); requestRef.current = controller
     const timeout = setTimeout(() => controller.abort(), 12000)
@@ -361,7 +514,7 @@ function EmailPhotoForm({ delivery, sessionExpiresAt }) {
   }
   return <section className="email-card" aria-labelledby="email-title">
     <div className="email-title-row"><h2 id="email-title">Kirim ke email</h2><span>opsional</span></div>
-    {status === 'idle' ? <form onSubmit={submit}>
+    {checking ? <p className="email-status" role="status">Memeriksa status pengiriman…</p> : status === 'idle' ? <form onSubmit={submit}>
       <label htmlFor="photo-email">Alamat email penerima</label>
       <div className="email-input-row"><input id="photo-email" type="email" required maxLength={254} autoComplete="off" inputMode="email" autoCapitalize="none" spellCheck={false} placeholder="nama@email.com" value={email} onChange={(event) => setEmail(event.target.value)} disabled={busy} aria-describedby="email-note" /><button className="button primary" type="submit" disabled={busy}>{busy ? 'Meminta…' : 'Kirim'}</button></div>
       <p id="email-note">Foto menjadi lampiran JPG. Periksa alamat sebelum mengirim.</p>
@@ -370,15 +523,18 @@ function EmailPhotoForm({ delivery, sessionExpiresAt }) {
   </section>
 }
 
-function ResultScreen({ result, qrData, remaining, onNew, onGallery, onPrint }) {
+function ResultScreen({ result, qrData, remaining, notice, onNew, onGallery, onPrint }) {
+  const character = result?.character
+  const scene = result?.scene
   return <main className="result screen-content">
+    {notice && <ErrorMessage text={notice} />}
     <div className="result-heading"><LogoStrip /><p className="eyebrow">HASIL KENANGAN</p><h1>Inilah <em>kisahmu.</em></h1><p>Terima kasih sudah menghidupkan kembali cerita di Museum R.A. Kartini.</p></div>
     <div className="result-layout">
-      <div className="polaroid"><img src={result?.imageUrl} alt="Hasil foto kenangan" /><div className="polaroid-footer"><img src="/assets/logo/logo-museum.webp" alt="Museum R.A. Kartini" /><span>Sejarah bukan hanya<br /><b>untuk dikenang.</b></span></div></div>
+      <div className="polaroid"><img src={result?.imageUrl} alt="Hasil foto kenangan" /><div className="polaroid-footer"><img src="/assets/logo/logo-museum.webp" alt="Museum R.A. Kartini" /><span className="result-caption">{character && scene ? <><strong>Bersama {character.name}</strong><small>{scene.name} · {scene.location}</small></> : <>Sejarah bukan hanya<br /><b>untuk dikenang.</b></>}</span></div></div>
       <div className="result-tools">
-        <div className={`qr-card ${remaining === 0 ? 'expired' : ''}`}><div>{qrData ? <img src={qrData} alt="QR code untuk mengunduh foto" /> : <div className="qr-placeholder" aria-label="QR code sedang disiapkan">QR</div>}</div><div><strong>Scan untuk membawa<br />pulang fotomu</strong><small><b className="qr-expiry">{remaining > 0 ? `QR tersedia ${remaining} detik` : 'QR sudah habis waktunya'}</b><br />Saat waktu habis, pilih lanjutkan atau keluar.</small></div></div>
+        <div className={`qr-card ${remaining === 0 ? 'expired' : ''}`}><div>{qrData ? <img src={qrData} alt="QR code untuk mengunduh foto" /> : <div className="qr-placeholder" aria-label="QR code sedang disiapkan">QR</div>}</div><div><strong>Scan untuk membawa<br />pulang fotomu</strong><small><b className="qr-expiry">{remaining > 0 ? `QR tersedia ${remaining} detik` : 'QR sudah habis waktunya'}</b><br />{result?.session?.continuationUsed ? 'Setelah waktu habis, kembali ke beranda otomatis.' : 'Saat waktu habis, pilih lanjutkan atau keluar.'}</small></div></div>
         <EmailPhotoForm key={result?.id || result?.imageUrl} delivery={result?.email} sessionExpiresAt={result?.downloadExpiresAt} />
-        <div className="result-download-actions"><a className="button secondary download-button" href={result?.imageUrl} download="kisah-kartini.png">Unduh PNG <span>↓</span></a><button className="button secondary print-button" onClick={onPrint}>Cetak <span>↗</span></button></div>
+        <div className="result-download-actions"><a className="button secondary download-button" href={result?.imageUrl} download={result?.filename || `photobooth_kartini_${String(result?.id || 0).padStart(6, '0')}.png`}>Unduh PNG <span>↓</span></a><button className="button secondary print-button" onClick={onPrint}>Cetak <span>↗</span></button></div>
       </div>
     </div>
     <div className="result-actions"><button className="button outline gallery-button" onClick={onGallery}>Lihat galeri <span>↗</span></button><button className="button outline" onClick={onNew}>Mulai sesi baru <span>↻</span></button></div>
@@ -420,8 +576,7 @@ function handleGalleryDialogKey(event, dialogRef, onClose) {
   else if (!event.shiftKey && (document.activeElement === last || document.activeElement === dialogRef.current)) { event.preventDefault(); first.focus() }
 }
 
-function GalleryModal({ items, loading, error, onRetry, onClose }) {
-  const [selectedPhoto, setSelectedPhoto] = useState(null)
+function GalleryModal({ items, loading, error, onRetry, onClose, selectedPhoto, onPhotoSelect }) {
   const dialogRef = useRef(null)
   const photoTriggerRef = useRef(null)
   const visibleItems = items.slice(0, 8)
@@ -429,7 +584,7 @@ function GalleryModal({ items, loading, error, onRetry, onClose }) {
     const previousFocus = document.activeElement
     const previousOverflow = document.body.style.overflow
     document.body.style.overflow = 'hidden'
-    dialogRef.current?.focus()
+    if (!selectedPhoto) dialogRef.current?.focus()
     return () => { document.body.style.overflow = previousOverflow; if (previousFocus?.isConnected) previousFocus.focus() }
   }, [])
   return <>
@@ -437,10 +592,10 @@ function GalleryModal({ items, loading, error, onRetry, onClose }) {
       <section className="gallery-modal" ref={dialogRef} tabIndex="-1" role="dialog" aria-modal="true" aria-labelledby="gallery-title" onClick={(event) => event.stopPropagation()} onKeyDown={(event) => handleGalleryDialogKey(event, dialogRef, onClose)}>
         <div className="modal-header"><div><p className="eyebrow">ARSIP VISUAL MUSEUM</p><h2 id="gallery-title">Galeri <em>terbaru.</em></h2></div><button className="close-button" onClick={onClose} aria-label="Tutup galeri">×</button></div>
         <p className="modal-copy">Maksimal 8 foto terbaru. Sentuh foto untuk melihat lebih dekat.</p>
-        {loading ? <div className="gallery-status" role="status">Memuat galeri terbaru…</div> : error ? <div className="gallery-status error-message" role="alert">{error}<button className="text-button" onClick={onRetry}>Coba lagi</button></div> : <div className="gallery-grid">{visibleItems.length ? visibleItems.map((item, index) => <button className="gallery-photo-button" key={item.thumbnailUrl || item.imageUrl} onClick={(event) => { photoTriggerRef.current = event.currentTarget; setSelectedPhoto({ src: item.thumbnailUrl || item.imageUrl, index }) }} aria-label={`Lihat detail foto ${index + 1}`}><img src={item.thumbnailUrl || item.imageUrl} alt="Potret pengunjung museum" loading="lazy" /></button>) : <div className="empty-gallery">Belum ada hasil di galeri. Jadilah yang pertama membuat kisah.</div>}</div>}
+        {loading ? <div className="gallery-status" role="status">Memuat galeri terbaru…</div> : error ? <div className="gallery-status error-message" role="alert">{error}<button className="text-button" onClick={onRetry}>Coba lagi</button></div> : <div className="gallery-grid">{visibleItems.length ? visibleItems.map((item, index) => <button className="gallery-photo-button" key={item.thumbnailUrl || item.imageUrl} onClick={(event) => { photoTriggerRef.current = event.currentTarget; onPhotoSelect({ src: item.thumbnailUrl || item.imageUrl, index }) }} aria-label={`Lihat detail foto ${index + 1}`}><img src={item.thumbnailUrl || item.imageUrl} alt="Potret pengunjung museum" loading="lazy" /></button>) : <div className="empty-gallery">Belum ada hasil di galeri. Jadilah yang pertama membuat kisah.</div>}</div>}
       </section>
     </div>
-    {selectedPhoto && <GalleryPhotoDialog photo={selectedPhoto} total={visibleItems.length} returnFocusRef={photoTriggerRef} onClose={() => setSelectedPhoto(null)} />}
+    {selectedPhoto && <GalleryPhotoDialog photo={selectedPhoto} total={visibleItems.length} returnFocusRef={photoTriggerRef} onClose={() => onPhotoSelect(null)} />}
   </>
 }
 
@@ -449,7 +604,10 @@ function GalleryPhotoDialog({ photo, total, returnFocusRef, onClose }) {
   useEffect(() => {
     const previousFocus = returnFocusRef.current || document.activeElement
     dialogRef.current?.focus()
-    return () => { if (previousFocus?.isConnected) previousFocus.focus() }
+    return () => {
+      const target = returnFocusRef.current || document.querySelector(`[aria-label="Lihat detail foto ${photo.index + 1}"]`) || previousFocus
+      if (target?.isConnected) target.focus()
+    }
   }, [returnFocusRef])
   return <div className="modal-backdrop gallery-detail-backdrop" onClick={onClose}><section className="gallery-detail" ref={dialogRef} tabIndex="-1" role="dialog" aria-modal="true" aria-labelledby="gallery-detail-title" onClick={(event) => event.stopPropagation()} onKeyDown={(event) => handleGalleryDialogKey(event, dialogRef, onClose)}>
     <div className="modal-header"><div><p className="eyebrow">FOTO {photo.index + 1} DARI {total}</p><h2 id="gallery-detail-title">Foto <em>kenangan.</em></h2></div><button className="close-button" onClick={onClose} aria-label="Tutup detail foto">×</button></div>

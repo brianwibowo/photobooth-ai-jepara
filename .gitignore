@@ -11,3 +11,4 @@ data/generated/*
 data/uploads/*
 /backups/
 .DS_Store
+audit-results/

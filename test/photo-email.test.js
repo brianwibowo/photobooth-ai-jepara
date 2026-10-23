@@ -42,7 +42,7 @@ test('queues one email, attaches the correct JPEG, and keeps delivery independen
   assert.equal(f.mail.length, 1)
   const message = f.mail[0]
   assert.equal(message.to.address, 'visitor@example.test')
-  assert.equal(message.attachments[0].filename, 'kisah-kartini.jpg')
+  assert.equal(message.attachments[0].filename, 'photobooth_kartini_000001.jpg')
   assert.equal(message.attachments[0].contentType, 'image/jpeg')
   assert.equal((await sharp(message.attachments[0].content).metadata()).format, 'jpeg')
   assert.equal(f.db.prepare('SELECT status FROM photo_emails').get().status, 'sent')
@@ -50,7 +50,7 @@ test('queues one email, attaches the correct JPEG, and keeps delivery independen
   assert.equal(f.mail.length, 1)
   // Compile an actual MIME message without connecting to any email service.
   const mime = await nodemailer.createTransport({ streamTransport: true, buffer: true }).sendMail(message)
-  assert.match(mime.message.toString(), /Content-Disposition: attachment; filename=kisah-kartini.jpg/)
+  assert.match(mime.message.toString(), /Content-Disposition: attachment; filename=photobooth_kartini_000001.jpg/)
   assert.match(mime.message.toString(), /Content-Type: image\/jpeg/)
 })
 

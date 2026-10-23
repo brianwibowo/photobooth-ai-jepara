@@ -2,6 +2,46 @@
 
 Tanggal pemeriksaan awal: 22 Oktober 2026.
 
+## Audit menyeluruh, pemulihan refresh, dan grup besar — 23 Oktober 2026
+
+Laporan lengkap: [docs/AUDIT_2026-10-23.md](docs/AUDIT_2026-10-23.md).
+Ringkasan browser: `docs/audit-2026-10-23-results.json`.
+
+- Refresh memulihkan langkah, pilihan, jumlah, foto konfirmasi, proses generasi,
+  hasil QR, serta galeri/detail pada tab yang sama. Countdown kamera tidak
+  mengambil foto otomatis setelah refresh. Deadline QR/grace tidak dimulai ulang.
+- Perpanjangan QR hanya sekali, 15 detik lalu langsung home tanpa pop-up ulang;
+  status tersimpan di server dan tetap berlaku setelah refresh. Keterangan hasil
+  mengikuti tokoh/tempat terpilih. Unduhan PNG dan lampiran JPG memakai nama
+  `photobooth_kartini_{nomor_unik}` yang sama, tanpa token QR.
+
+- Metadata per tab memakai sessionStorage dan foto sumber memakai IndexedDB.
+  Sesi baru/timeout membersihkan metadata; cache foto mempunyai cutoff 20 menit.
+  Cache hilang/diblokir kembali ke kamera, sedangkan sessionStorage diblokir
+  memulai home. Tab baru tidak mengambil alih sesi tab lain.
+- Status SQLite + ID/fingerprint generasi memungkinkan recovery tanpa mengulang
+  provider pada retry/refresh request yang sama. Restart tidak auto-regenerate.
+- Pilihan manual diperluas dari 1–3 menjadi 1–20, tetap opsional. Semua 21
+  kombinasi tokoh/tempat diuji. Konkurensi saat cooldown dan token admin Unicode
+  juga diperbaiki. Status email yang sudah antre/sent dipulihkan setelah refresh.
+- `npm run check`, syntax server/session/runner, `git diff --check`, dan **27 tes
+  otomatis** lulus. Termasuk matriks jumlah, validasi negatif, input provider,
+  idempotensi, restart, rate limit, persistence, galeri, QR, email, dan admin.
+- **19 skenario browser** lulus, dengan **25 screenshot** pada empat ukuran.
+  Grup 1/3/4/6/8 masing-masing diuji manual dan tanpa jumlah; refresh pada setiap
+  langkah; hash foto konfirmasi sebelum/sesudah refresh sama. Negatif mencakup
+  kamera ditolak/hilang/tidak dijawab/terputus, storage diblokir/rusak, cache
+  hilang, provider gagal, respons generasi hilang, jaringan status gagal,
+  galeri gagal/JSON invalid/retry, dan penanganan batas waktu.
+- VPS dicek read-only: health 200/ok dan galeri maksimal delapan. Patch refresh
+  belum dideploy oleh agen. SMTP produksi belum aktif.
+
+**Batas verifikasi:** kamera, provider AI, dan SMTP memakai simulasi. Tidak
+menjalankan generasi AI berbayar/email nyata. Belum ada face detector atau
+validator jumlah/identitas pada hasil. Foto gelap, wajah tertutup/terpotong,
+wajah kecil pada grup besar, dan ketepatan jumlah AI tetap merupakan P1 terbuka
+untuk uji generasi nyata, bukan skenario yang dinyatakan lulus di audit ini.
+
 ## Galeri delapan foto, detail foto, dan loading persegi panjang — 23 Oktober 2026
 
 Galeri dibatasi delapan hasil terbaru di API dan UI. Thumbnail dapat disentuh

@@ -1,3 +1,4 @@
+import { resultFilename } from './result-filename.js'
 import nodemailer from 'nodemailer'
 import sharp from 'sharp'
 import fs from 'node:fs/promises'
@@ -129,7 +130,7 @@ export function createPhotoEmailService({ db, generatedDir, env = process.env, t
           subject: 'Foto kenanganmu di Museum R.A. Kartini',
           text: 'Terima kasih sudah berkunjung ke Museum R.A. Kartini, Rembang. Foto kenanganmu terlampir dalam email ini. Simpan lampirannya untuk membawa pulang kisahmu.',
           html: '<h1>Inilah kisahmu.</h1><p>Terima kasih sudah berkunjung ke Museum R.A. Kartini, Rembang.</p><p>Foto kenanganmu terlampir dalam email ini. Simpan lampirannya untuk membawa pulang kisahmu.</p>',
-          attachments: [{ filename: 'kisah-kartini.jpg', content: image, contentType: 'image/jpeg', contentDisposition: 'attachment' }],
+          attachments: [{ filename: resultFilename(job.result_id, 'jpg'), content: image, contentType: 'image/jpeg', contentDisposition: 'attachment' }],
           disableUrlAccess: true,
           disableFileAccess: true,
         })

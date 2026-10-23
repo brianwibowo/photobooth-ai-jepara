@@ -13,6 +13,7 @@
     "check:assets": "node scripts/check-assets.mjs",
     "email:verify": "node server/verify-email.js",
     "test": "node --test test/*.test.js",
+    "audit:ui": "node scripts/audit-ui.mjs",
     "assets:previews": "node scripts/build-scene-previews.mjs"
   },
   "dependencies": {

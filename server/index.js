@@ -12,6 +12,9 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import { characters, scenes, getCharacter, getScene } from '../src/data.js'
 import { createPhotoEmailService } from './photo-email.js'
 import { buildGenerationPrompt } from './generation-prompt.js'
+import { createGenerationJobs } from './generation-jobs.js'
+import { resultFilename } from './result-filename.js'
+import { MAX_VISITORS } from '../src/config.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const root = path.resolve(__dirname, '..')
@@ -24,7 +27,6 @@ const DEFAULT_RESULT_RETENTION_MS = 7 * 24 * 60 * 60 * 1000
 const DEFAULT_DOWNLOAD_TTL_MS = 60 * 1000
 const RESULT_CONTINUE_GRACE_MS = 10 * 1000
 const RESULT_EXTENSION_MS = 15 * 1000
-const MAX_PEOPLE = 3
 const DEFAULT_MAX_UPLOAD_MB = 8
 const DEFAULT_MAX_PIXELS = 24_000_000
 
@@ -65,7 +67,8 @@ function createDatabase(dataDir) {
       is_public INTEGER NOT NULL DEFAULT 1,
       created_at TEXT NOT NULL,
       expires_at TEXT,
-      download_expires_at TEXT
+      download_expires_at TEXT,
+      continuation_used INTEGER NOT NULL DEFAULT 0
     );
     CREATE TABLE IF NOT EXISTS guests (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -80,6 +83,9 @@ function createDatabase(dataDir) {
     if (!/duplicate column name/i.test(error.message)) throw error
   }
   try { db.exec('ALTER TABLE results ADD COLUMN download_expires_at TEXT') } catch (error) {
+    if (!/duplicate column name/i.test(error.message)) throw error
+  }
+  try { db.exec('ALTER TABLE results ADD COLUMN continuation_used INTEGER NOT NULL DEFAULT 0') } catch (error) {
     if (!/duplicate column name/i.test(error.message)) throw error
   }
   db.exec('CREATE TABLE IF NOT EXISTS schema_migrations (name TEXT PRIMARY KEY)')
@@ -235,7 +241,7 @@ export function createApp(options = {}) {
     // Visitor count is optional and independent of legacy guest book data.
     if (body.people === undefined && body.guests === undefined) return null
     const people = Number(body.people)
-    if (!Number.isInteger(people) || people < 1 || people > MAX_PEOPLE) return 'Jumlah pengunjung harus 1–3 orang.'
+    if (!Number.isInteger(people) || people < 1 || people > MAX_VISITORS) return `Jumlah pengunjung harus 1–${MAX_VISITORS} orang.`
     if (body.guests === undefined) return null
     const guests = safeJson(body.guests, null)
     if (!Array.isArray(guests) || guests.length !== people) return 'Data pengunjung belum lengkap.'
@@ -427,11 +433,11 @@ export function createApp(options = {}) {
   async function acquireSlot() {
     if (active || queued >= maxQueue) return false
     queued += 1
-    while (active) await new Promise((resolve) => setTimeout(resolve, 25))
+    active = true
     queued -= 1
     const wait = Math.max(0, minIntervalMs - (Date.now() - lastStartedAt))
     if (wait) await new Promise((resolve) => setTimeout(resolve, wait))
-    active = true; lastStartedAt = Date.now()
+    lastStartedAt = Date.now()
     return true
   }
   function releaseSlot() { active = false }
@@ -486,6 +492,44 @@ export function createApp(options = {}) {
     res.type('image/webp').set('Cache-Control', 'public, max-age=604800, immutable').sendFile(path.join(generatedDir, row.thumbnail_file))
   })
 
+  function resultAvailable(row) {
+    const expiry = Date.parse(row.download_expires_at || row.expires_at || '')
+    return Number.isFinite(expiry) && now().getTime() < expiry + (row.continuation_used ? 0 : RESULT_CONTINUE_GRACE_MS) && (!row.expires_at || Date.parse(row.expires_at) > now().getTime())
+  }
+  function resultPayload(row) {
+    const character = getCharacter(row.character_id)
+    const scene = getScene(row.scene_id)
+    return {
+      id: row.id,
+      filename: resultFilename(row.id, path.extname(row.image_file) === '.webp' ? 'webp' : 'png'),
+      character: { id: row.character_id, name: character.name },
+      scene: { id: row.scene_id, name: scene.name, location: scene.location },
+      imageUrl: `/api/download/${row.token}`,
+      thumbnailUrl: `/api/gallery/image/${encodeURIComponent(row.thumbnail_file)}`,
+      qrUrl: `${publicBaseUrl}/api/download/${row.token}`,
+      provider: row.provider,
+      expiresIn: `${Math.max(0, Math.ceil((Date.parse(row.download_expires_at) - now().getTime()) / 1000))} detik`,
+      downloadExpiresAt: row.download_expires_at,
+      retentionExpiresAt: row.expires_at,
+      session: {
+        extendEndpoint: `/api/results/${row.token}/extend`,
+        continuationUsed: Boolean(row.continuation_used),
+        graceSeconds: row.continuation_used ? 0 : RESULT_CONTINUE_GRACE_MS / 1000,
+        extensionSeconds: RESULT_EXTENSION_MS / 1000,
+      },
+      email: { available: photoEmail.available, endpoint: `/api/results/${row.token}/email` },
+    }
+  }
+  const generationJobs = createGenerationJobs({ db, clock: () => now().getTime(), resultPayload, resultAvailable })
+  app.get('/api/generations/:id', (req, res) => {
+    res.set('Cache-Control', 'private, no-store')
+    if (!generationJobs.validId(req.params.id)) return res.status(400).json({ error: 'ID permintaan tidak valid.', code: 'GENERATION_ID_INVALID' })
+    const snapshot = generationJobs.read(req.params.id)
+    if (snapshot.httpStatus === 200) return res.json({ status: 'complete', result: snapshot.payload })
+    if (snapshot.payload.status === 'failed') return res.json(snapshot.payload)
+    return res.status(snapshot.httpStatus).json(snapshot.payload)
+  })
+
   app.post('/api/generate', (req, res, next) => {
     if (!allowGenerationRequest(req)) {
       res.set('Retry-After', String(Math.ceil(rateWindowMs / 1000)))
@@ -507,7 +551,20 @@ export function createApp(options = {}) {
     const people = req.body.people === undefined ? null : Number(req.body.people)
     const guestError = validateGuestPayload(req.body)
     if (guestError) return res.status(400).json({ error: guestError, code: 'GUESTS_INVALID', retryable: false })
-    if (!(await acquireSlot())) return res.status(429).json({ error: 'Photobooth sedang sibuk. Silakan coba lagi sebentar.', code: 'GENERATION_BUSY', retryable: true })
+    const requestId = req.get('x-generation-id') || null
+    if (requestId && !generationJobs.validId(requestId)) return res.status(400).json({ error: 'ID permintaan tidak valid.', code: 'GENERATION_ID_INVALID' })
+    res.set('Cache-Control', 'private, no-store')
+    if (requestId) {
+      const fingerprint = crypto.createHash('sha256').update(req.file.buffer).update(JSON.stringify([sceneId, characterId, people, req.body.guests || null])).digest('hex')
+      const replay = generationJobs.reserve(requestId, fingerprint)
+      if (replay) return res.status(replay.httpStatus).json(replay.payload)
+    }
+    const reply = (code, payload) => {
+      const response = requestId && code !== 200 ? { ...payload, status: 'failed' } : payload
+      if (requestId && code !== 200) generationJobs.finish(requestId, code, response)
+      return res.status(code).json(response)
+    }
+    if (!(await acquireSlot())) return reply(429, { error: 'Photobooth sedang sibuk. Silakan coba lagi sebentar.', code: 'GENERATION_BUSY', retryable: true })
     const guestList = safeJson(req.body.guests, [])
     const writtenFiles = []
     try {
@@ -535,7 +592,7 @@ export function createApp(options = {}) {
       } catch (error) {
         console.error('AI generation failed', error?.code || 'UNKNOWN', error?.message)
         if (error?.code === 'OPENROUTER_PAYMENT_REQUIRED') {
-          return res.status(402).json({
+          return reply(402, {
             error: 'Saldo OpenRouter kurang dari $1.00 (syarat minimum OpenRouter untuk fitur gambar). Silakan isi saldo di https://openrouter.ai/settings/credits.',
             code: 'OPENROUTER_PAYMENT_REQUIRED',
             retryable: true
@@ -543,16 +600,16 @@ export function createApp(options = {}) {
         }
         if (error?.quotaError) {
           const retryHint = formatRetryDelay(error.retryDelay)
-          return res.status(429).json({ error: `Kuota API Gemini untuk model image habis.${retryHint} Aktifkan billing di Google Cloud atau gunakan OpenRouter.`, code: 'GEMINI_QUOTA_EXCEEDED', retryable: true })
+          return reply(429, { error: `Kuota API Gemini untuk model image habis.${retryHint} Aktifkan billing di Google Cloud atau gunakan OpenRouter.`, code: 'GEMINI_QUOTA_EXCEEDED', retryable: true })
         }
         if (process.env.NODE_ENV !== 'production' && process.env.ALLOW_LOCAL_FALLBACK === 'true') { output = await fallbackImage({ photoBuffer: req.file.buffer }); provider = 'fallback' }
-        else return res.status(502).json({ error: error?.message || 'AI belum berhasil membuat gambar. Periksa API key, model, dan kuota lalu coba lagi.', code: error?.code || 'GENERATION_FAILED', retryable: true })
+        else return reply(502, { error: error?.message || 'AI belum berhasil membuat gambar. Periksa API key, model, dan kuota lalu coba lagi.', code: error?.code || 'GENERATION_FAILED', retryable: true })
       }
       let generatedMeta
       try { generatedMeta = await sharp(output, { limitInputPixels: maxPixels }).metadata() } catch {
-        return res.status(502).json({ error: 'Hasil Gemini tidak valid.', code: 'OUTPUT_INVALID', retryable: true })
+        return reply(502, { error: 'Hasil Gemini tidak valid.', code: 'OUTPUT_INVALID', retryable: true })
       }
-      if (!generatedMeta.width || !generatedMeta.height || generatedMeta.width * generatedMeta.height > maxPixels) return res.status(502).json({ error: 'Hasil Gemini tidak valid.', code: 'OUTPUT_INVALID', retryable: true })
+      if (!generatedMeta.width || !generatedMeta.height || generatedMeta.width * generatedMeta.height > maxPixels) return reply(502, { error: 'Hasil Gemini tidak valid.', code: 'OUTPUT_INVALID', retryable: true })
       const token = uniqueToken(); const stem = crypto.randomBytes(16).toString('hex')
       // Keep the generated result lossless and downloadable as PNG. Gallery
       // thumbnails remain WebP to keep the public gallery lightweight.
@@ -568,30 +625,29 @@ export function createApp(options = {}) {
         const result = db.prepare('INSERT INTO results (token,image_file,thumbnail_file,scene_id,character_id,provider,is_public,created_at,expires_at,download_expires_at) VALUES (?,?,?,?,?,?,?,?,?,?)').run(token, imageFile, thumbFile, sceneId, characterId, provider, ['gemini', 'openrouter'].includes(provider) ? 1 : 0, createdAt.toISOString(), expiresAt, downloadExpiresAt)
         const insertGuest = db.prepare('INSERT INTO guests (result_id,name,gender,created_at) VALUES (?,?,?,?)')
         guestList.forEach((guest) => insertGuest.run(result.lastInsertRowid, guest.name.trim().slice(0, 80), guest.gender, createdAt.toISOString()))
+        if (requestId) generationJobs.finish(requestId, 200, { id: result.lastInsertRowid })
         return result.lastInsertRowid
       })()
-      const downloadUrl = `${publicBaseUrl}/api/download/${token}`
-      const downloadSeconds = Math.max(1, Math.ceil(downloadTtlMs / 1000))
-      return res.json({ id: resultId, imageUrl: `/api/download/${token}`, thumbnailUrl: `/api/gallery/image/${encodeURIComponent(thumbFile)}`, qrUrl: downloadUrl, provider, expiresIn: `${downloadSeconds} detik`, downloadExpiresAt, retentionExpiresAt: expiresAt, session: { extendEndpoint: `/api/results/${token}/extend`, graceSeconds: RESULT_CONTINUE_GRACE_MS / 1000, extensionSeconds: RESULT_EXTENSION_MS / 1000 }, email: { available: photoEmail.available, endpoint: `/api/results/${token}/email` } })
+      return reply(200, resultPayload(db.prepare('SELECT * FROM results WHERE id = ?').get(resultId)))
     } catch (error) {
       await Promise.all(writtenFiles.map(async (file) => { try { await fs.unlink(path.join(generatedDir, file)) } catch { /* best effort */ } }))
       console.error('Generation persistence failed', error?.code || 'UNKNOWN')
-      return res.status(500).json({ error: 'Foto belum dapat disimpan. Silakan coba lagi.', code: 'RESULT_SAVE_FAILED', retryable: true })
+      return reply(500, { error: 'Foto belum dapat disimpan. Silakan coba lagi.', code: 'RESULT_SAVE_FAILED', retryable: true })
     } finally { releaseSlot() }
   })
 
   const extendResult = db.transaction((token) => {
-    const row = db.prepare('SELECT image_file, created_at, expires_at, download_expires_at FROM results WHERE token = ?').get(token)
+    const row = db.prepare('SELECT id, image_file, created_at, expires_at, download_expires_at, continuation_used FROM results WHERE token = ?').get(token)
     if (!row) return { code: 404, error: 'Foto tidak ditemukan.' }
     const current = now().getTime()
     const retention = row.expires_at ? Date.parse(row.expires_at) : Infinity
     const expiry = row.download_expires_at ? Date.parse(row.download_expires_at) : row.expires_at ? Date.parse(row.expires_at) : Date.parse(row.created_at) + DEFAULT_DOWNLOAD_TTL_MS
-    if (!Number.isFinite(expiry) || (row.expires_at && !Number.isFinite(retention)) || retention <= current || current >= expiry + RESULT_CONTINUE_GRACE_MS) return { code: 410, error: 'Sesi foto sudah berakhir. Silakan mulai sesi baru.' }
+    if (!Number.isFinite(expiry) || (row.expires_at && !Number.isFinite(retention)) || retention <= current || current >= expiry + (row.continuation_used ? 0 : RESULT_CONTINUE_GRACE_MS)) return { code: 410, error: 'Sesi foto sudah berakhir. Silakan mulai sesi baru.' }
     if (!/^[a-zA-Z0-9._-]+\.(?:png|webp)$/.test(row.image_file) || !fsSync.existsSync(path.join(generatedDir, row.image_file))) return { code: 404, error: 'Foto tidak ditemukan.' }
-    // Active/repeated requests return the current deadline without accumulating time.
+    // Only the initial expiry has grace. Repeated active requests return the same deadline.
     const nextExpiry = expiry > current ? expiry : Math.min(current + RESULT_EXTENSION_MS, retention)
-    if (nextExpiry !== expiry) db.prepare('UPDATE results SET download_expires_at = ? WHERE token = ?').run(new Date(nextExpiry).toISOString(), token)
-    return { code: 200, downloadExpiresAt: new Date(nextExpiry).toISOString() }
+    if (nextExpiry !== expiry) db.prepare('UPDATE results SET download_expires_at = ?, continuation_used = 1 WHERE token = ?').run(new Date(nextExpiry).toISOString(), token)
+    return { code: 200, downloadExpiresAt: new Date(nextExpiry).toISOString(), continuationUsed: Boolean(row.continuation_used || nextExpiry !== expiry) }
   })
   app.post('/api/results/:token/extend', (req, res) => {
     res.set('Cache-Control', 'private, no-store')
@@ -611,7 +667,7 @@ export function createApp(options = {}) {
   })
 
   app.get('/api/download/:token', (req, res) => {
-    const row = db.prepare('SELECT image_file, created_at, expires_at, download_expires_at FROM results WHERE token = ?').get(req.params.token)
+    const row = db.prepare('SELECT id, image_file, created_at, expires_at, download_expires_at, continuation_used FROM results WHERE token = ?').get(req.params.token)
     if (!row) return res.status(404).send('Tautan foto tidak ditemukan.')
     // New rows use a 60-second token TTL. Legacy rows without the column keep
     // their old retention expiry so existing links do not break on migration.
@@ -619,13 +675,15 @@ export function createApp(options = {}) {
     if (!Number.isFinite(expiresAt.getTime()) || expiresAt <= now()) return res.status(410).send('Tautan foto sudah kedaluwarsa.')
     if (!/^[a-zA-Z0-9._-]+\.(?:png|webp)$/.test(row.image_file)) return res.status(404).send('Gambar tidak ditemukan.')
     const extension = path.extname(row.image_file).toLowerCase() === '.png' ? 'png' : 'webp'
-    res.type(extension).set('Content-Disposition', `inline; filename="kisah-kartini.${extension}"`).set('Cache-Control', 'private, no-store').sendFile(path.join(generatedDir, row.image_file))
+    res.type(extension).set('Content-Disposition', `inline; filename="${resultFilename(row.id, extension)}"`).set('Cache-Control', 'private, no-store').sendFile(path.join(generatedDir, row.image_file))
   })
 
   app.get('/api/admin/guests.csv', (req, res) => {
     const expected = process.env.ADMIN_TOKEN
     const supplied = req.get('x-admin-token') || req.get('authorization')?.replace(/^Bearer\s+/i, '')
-    if (!expected || !supplied || expected.length !== supplied.length || !crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(supplied))) return res.status(401).json({ error: 'Akses admin diperlukan.', code: 'ADMIN_UNAUTHORIZED' })
+    const expectedBytes = Buffer.from(expected || '')
+    const suppliedBytes = Buffer.from(supplied || '')
+    if (!expected || !supplied || expectedBytes.length !== suppliedBytes.length || !crypto.timingSafeEqual(expectedBytes, suppliedBytes)) return res.status(401).json({ error: 'Akses admin diperlukan.', code: 'ADMIN_UNAUTHORIZED' })
     const rows = db.prepare('SELECT g.name, g.gender, r.scene_id AS scene, g.created_at AS timestamp FROM guests g JOIN results r ON r.id = g.result_id ORDER BY g.id DESC').all()
     const csv = ['Nama,Jenis Kelamin,Adegan,Timestamp', ...rows.map((row) => [row.name, row.gender, row.scene, row.timestamp].map(csvEscape).join(','))].join('\n') + '\n'
     res.type('text/csv').set('Content-Disposition', 'attachment; filename="buku-tamu.csv"').send(csv)

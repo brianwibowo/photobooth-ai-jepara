@@ -66,7 +66,7 @@ Put Nginx/Caddy in front for HTTPS. The API stores generated files in `data/gene
 
 Alur utama: **Tempat → Tokoh → Foto → Cek foto → Hasil QR**.
 Tempat dan tokoh dipilih pada layar terpisah. Nama dan jenis kelamin tidak
-diminta. Jumlah pengunjung dapat dipilih secara opsional (1–3) pada layar kamera,
+diminta. Jumlah pengunjung dapat dipilih secara opsional (1–20) pada layar kamera,
 tanpa menghitung tokoh pilihan. Default "Ikuti foto" menyerahkan acuan jumlah ke
 model berdasarkan foto; ini bukan deteksi wajah otomatis. Bila jumlah dipilih,
 API mengirim angka tersebut sebagai batasan prompt tanpa membutuhkan data tamu. Konfirmasi foto tetap
@@ -120,9 +120,31 @@ membuka foto utuh dalam pop-up detail; tombol **×**, Escape, atau sentuhan di
 luar detail menutupnya dan mengembalikan ke daftar galeri. Pratinjau detail
 memakai WebP galeri publik; token unduh PNG tetap privat pada sesi hasil.
 
+Refresh memulihkan sesi aktif pada tab yang sama: pilihan tempat/tokoh,
+jumlah, foto konfirmasi, generasi yang berjalan, hasil, serta galeri/detail.
+Metadata disimpan di sessionStorage; foto sumber sebagai Blob di IndexedDB,
+bukan base64 di localStorage. Countdown kamera dimulai ulang dan tidak otomatis
+mengambil foto setelah refresh. Waktu QR dan galeri tetap mengikuti deadline,
+bukan dihitung ulang dari awal. Keluar/sesi baru membersihkan metadata dan
+menjadwalkan penghapusan foto cache. Sesi persiapan yang idle dua menit berakhir;
+cache foto tidak dipulihkan setelah dua puluh menit dan dibersihkan saat app dibuka.
+Jika cache foto hilang/diblokir, kembali ke kamera untuk ambil ulang. Jika seluruh
+sessionStorage diblokir, refresh memulai dari beranda. Tab baru memulai sesi baru.
+
+Setiap permintaan kiosk membawa header `x-generation-id`. Status SQLite dan
+fingerprint foto/pilihan memastikan pengulangan ID yang sama tidak membuat job
+baru. Refresh selama generasi memeriksa `GET /api/generations/:id` dan tidak
+mengirim ulang POST otomatis. Restart server menandai job terputus sebagai gagal;
+operator/pengunjung memilih retry secara eksplisit. Ini tidak menjamin billing
+exactly-once dari provider yang mengalami timeout atau fallback.
+
 Setelah QR habis, pop-up memberikan 10 detik untuk memilih **Lanjutkan (15 detik)**
 atau **Keluar**. Tanpa tindakan, kembali ke beranda. Lanjutkan mengaktifkan
-tautan yang sama selama 15 detik lewat server; klik ganda tidak menumpuk waktu.
+tautan yang sama selama 15 detik lewat server, **hanya sekali**; klik ganda tidak menumpuk waktu.
+Setelah tambahan 15 detik habis, langsung kembali ke beranda tanpa pop-up kedua,
+termasuk setelah refresh. Hasil menampilkan tokoh dan tempat yang benar-benar
+dipilih. Nama unduhan adalah `photobooth_kartini_{nomor_unik}.png`, misalnya
+`photobooth_kartini_000021.png`; lampiran email memakai nomor yang sama dengan ekstensi JPG.
 Sesi yang lewat jendela 10 detik atau melewati retensi tidak dapat diperpanjang.
 
 ## Email foto dari VPS
@@ -195,10 +217,11 @@ akun mendukungnya, [app password memerlukan 2-Step Verification](https://support
 
 - `GET /api/health`: readiness and provider mode.
 - `GET /api/gallery?limit=8`: newest public thumbnails only (default and maximum 8).
-- `POST /api/generate`: internal multipart camera capture with `photo`, `sceneId`, and `characterId`; optional `people` (1–3) is accepted independently; legacy `guests` data is validated when supplied; the kiosk does not expose a file-upload control.
+- `POST /api/generate`: internal multipart camera capture with `photo`, `sceneId`, and `characterId`; optional `people` (1–20) is accepted independently; legacy `guests` data is validated when supplied; the kiosk does not expose a file-upload control.
+- `GET /api/generations/:id`: status privat running/complete/failed; hasil kedaluwarsa tidak dipulihkan.
 - `POST /api/results/:token/email`: token sesi aktif + JSON `{ "email": "..." }`; membuat job pengiriman lampiran.
 - `GET /api/results/:token/email`: status job tanpa menampilkan alamat penerima.
-- `POST /api/results/:token/extend`: memperpanjang QR 15 detik dalam grace 10 detik;
+- `POST /api/results/:token/extend`: memperpanjang QR satu kali selama 15 detik dalam grace awal 10 detik;
   respons berisi `downloadExpiresAt` yang baru, tanpa mengubah retensi foto.
 - `GET /api/download/:token`: token-based private result access used by the QR.
 
@@ -208,3 +231,20 @@ Gallery supports real Gemini and OpenRouter results. On first startup after the
 gallery fix, a one-time database migration repairs older OpenRouter rows that
 were incorrectly excluded. Retention and subsequent visibility changes remain
 respected; local fallback images are excluded.
+
+## Audit yang dapat diulang
+
+```bash
+npm run check
+npm test
+npm run audit:ui
+```
+
+Audit UI memerlukan modul `playwright` dan browser Chromium yang tersedia di
+lingkungan pengujian. Jika modul berada di runtime terpisah, isi
+`PLAYWRIGHT_MODULE_PATH` dengan direktori modul; `BROWSER_EXECUTABLE` dapat
+menunjuk executable Chrome yang sudah terpasang. Audit memakai server/temp DB,
+foto sintetis, kamera simulasi, provider simulasi, dan SMTP simulasi. Tidak
+mengirim generasi berbayar atau email nyata. JSON dan screenshot keluar ke
+`audit-results/` (diabaikan Git). Laporan terperinci dan batas verifikasi ada di
+[docs/AUDIT_2026-10-23.md](docs/AUDIT_2026-10-23.md).
