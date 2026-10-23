@@ -7,6 +7,25 @@ import Database from 'better-sqlite3'
 import sharp from 'sharp'
 import { createApp } from '../server/index.js'
 
+test('gallery returns at most the eight newest eligible results, including when clients request more', async (t) => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'gallery-limit-test-'))
+  const current = new Date('2026-10-23T04:00:00Z')
+  const instance = createApp({ dataDir: dir, now: () => current, emailOptions: { env: {}, autoStart: false } })
+  const server = instance.app.listen(0, '127.0.0.1')
+  await new Promise((resolve) => server.once('listening', resolve))
+  t.after(async () => { await new Promise((resolve) => server.close(resolve)); await instance.close(); await fs.rm(dir, { recursive: true, force: true }) })
+  const insert = instance.db.prepare('INSERT INTO results (id,token,image_file,thumbnail_file,scene_id,character_id,provider,is_public,created_at,expires_at) VALUES (?,?,?,?,?,?,?,?,?,?)')
+  for (let id = 1; id <= 15; id += 1) insert.run(id, `token-${id}`, `${id}.png`, `${id}-thumb.webp`, 'gerbang', 'kartini', id === 14 ? 'fallback' : 'gemini', id === 13 ? 0 : 1, current.toISOString(), id === 15 ? '2026-10-22T04:00:00Z' : '2026-10-24T04:00:00Z')
+  const base = `http://127.0.0.1:${server.address().port}`
+  const expected = Array.from({ length: 8 }, (_, index) => ({ thumbnailUrl: `/api/gallery/image/${12 - index}-thumb.webp` }))
+  for (const query of ['', '?limit=8', '?limit=20', '?limit=100', '?limit=Infinity', '?limit=invalid']) {
+    const response = await fetch(base + '/api/gallery' + query)
+    assert.equal(response.status, 200)
+    assert.deepEqual(await response.json(), { items: expected })
+  }
+  assert.deepEqual(await (await fetch(base + '/api/gallery?limit=2.9')).json(), { items: expected.slice(0, 2) })
+})
+
 test('gallery includes both AI providers, repairs legacy OpenRouter rows once, and respects visibility/retention', async (t) => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'gallery-test-'))
   const legacy = new Database(path.join(dir, 'photobooth.db'))

@@ -468,7 +468,7 @@ export function createApp(options = {}) {
     })
   })
   app.get('/api/gallery', (req, res) => {
-    const limit = Math.min(Math.max(Number(req.query.limit) || 12, 1), 20)
+    const limit = Math.min(Math.max(Math.floor(Number(req.query.limit) || 8), 1), 8)
     const current = now().toISOString()
     const query = resultRetentionMs > 0
       ? "SELECT id, thumbnail_file FROM results WHERE is_public = 1 AND provider IN ('gemini', 'openrouter') AND ((expires_at IS NOT NULL AND expires_at > ?) OR (expires_at IS NULL AND datetime(created_at, '+7 days') > datetime(?))) ORDER BY id DESC LIMIT ?"

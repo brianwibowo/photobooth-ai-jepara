@@ -2,6 +2,29 @@
 
 Tanggal pemeriksaan awal: 22 Oktober 2026.
 
+## Galeri delapan foto, detail foto, dan loading persegi panjang — 23 Oktober 2026
+
+Galeri dibatasi delapan hasil terbaru di API dan UI. Thumbnail dapat disentuh
+untuk membuka foto utuh pada pop-up detail dengan tombol ×. Detail tetap memakai
+thumbnail publik tanpa membocorkan token unduh master PNG. Fokus keyboard kembali
+ke thumbnail saat detail ditutup; galeri di belakangnya tidak dapat diinteraksi.
+Loading memakai bingkai persegi panjang dengan `object-fit: contain`, tanpa
+lingkaran, dan mempertahankan seluruh foto pengunjung.
+
+Verifikasi:
+
+- `npm run check`, syntax server, `git diff --check`, dan enam belas tes otomatis
+  lulus. Tes baru membuktikan batas delapan hasil terbaru yang memenuhi syarat,
+  permintaan melebihi batas, nilai limit invalid/pecahan, serta pengecualian
+  foto privat, fallback, dan kedaluwarsa.
+- Dua puluh empat tampilan pada 1920×1080, 1366×768, 1080×1920, dan 390×844 lulus
+  memakai kamera/provider simulasi: maksimum delapan meskipun payload berisi
+  dua belas, foto detail yang tepat dan utuh, tombol ×, Escape bertahap,
+  pemulihan fokus/scroll, foto empat orang pada loading persegi panjang, dan
+  akhir sesi QR ketika detail galeri sedang terbuka.
+- Tidak ada gambar rusak atau overflow horizontal; kiosk muat tanpa scroll.
+  Tidak menjalankan generasi berbayar atau mengirim email nyata.
+
 ## Referensi tanpa orang, foto grup pada loading, dan akhir sesi QR — 23 Oktober 2026
 
 Latar generasi membatik dan ruang gagasan kini memakai plate tanpa orang hasil

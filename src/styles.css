@@ -130,11 +130,8 @@ h1 em, h2 em { color: var(--coral); font-weight: 500; }
 .session-progress .complete { color: var(--coral); }
 
 .generating { display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
-.generating-orbit { position: relative; display: grid; place-items: center; width: min(28vh, 280px); height: min(28vh, 280px); margin-bottom: 32px; }
-.generating-photo { width: 84%; height: 84%; border-radius: 50%; background: var(--paper); display: grid; place-items: center; }
-.generating-photo img { display: block; object-fit: contain; border-radius: 4px; }
-.orbit-ring { position: absolute; inset: 0; border: 2px solid var(--line); border-top-color: var(--coral); border-radius: 50%; animation: spin 3s linear infinite; }
-@keyframes spin { to { transform: rotate(360deg); } }
+.generating-photo { width: min(480px, 100%); height: min(28vh, 280px); margin-bottom: 32px; padding: 8px; background: var(--paper); box-shadow: 8px 8px 0 rgba(23, 62, 64, .08); }
+.generating-photo img { display: block; width: 100%; height: 100%; object-fit: contain; background: var(--ink-deep); }
 .generating-note { font-size: 20px; color: var(--muted); margin: 26px 0; }
 .generating-message { width: 100%; min-height: 280px; }
 .loading-line { width: min(440px, 80vw); height: 4px; background: var(--line); overflow: hidden; }
@@ -190,7 +187,16 @@ h1 em, h2 em { color: var(--coral); font-weight: 500; }
 .close-button { color: var(--ink); background: transparent; font-size: 40px; width: 60px; height: 60px; }
 .modal-copy { color: var(--muted); font-size: 18px; margin: 16px 0 28px; }
 .gallery-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 18px; }
-.gallery-grid img { width: 100%; aspect-ratio: 1; object-fit: cover; }
+.gallery-photo-button { display: block; width: 100%; padding: 0; background: var(--paper); }
+.gallery-photo-button:hover { outline: 2px solid var(--coral); outline-offset: 3px; }
+.gallery-grid img { display: block; width: 100%; aspect-ratio: 1; object-fit: cover; }
+.gallery-detail-backdrop { z-index: 25; }
+.gallery-detail { width: min(100%, 1100px); max-height: 90dvh; padding: clamp(20px, 3vw, 32px); overflow-y: auto; background: var(--cream); }
+.gallery-detail .modal-header { align-items: center; margin-bottom: 20px; }
+.gallery-detail .modal-header h2 { font-size: clamp(28px, 3vw, 42px); }
+.gallery-detail .eyebrow { margin-bottom: 8px; }
+.gallery-detail .close-button, .gallery-modal .close-button { flex-shrink: 0; }
+.gallery-detail-image { display: block; width: 100%; max-height: 64dvh; object-fit: contain; background: var(--ink-deep); }
 .empty-gallery, .gallery-status { grid-column: 1 / -1; text-align: center; padding: 50px; font-size: 18px; color: var(--muted); }
 .gallery-status .text-button { display: block; margin: 16px auto 0; }
 

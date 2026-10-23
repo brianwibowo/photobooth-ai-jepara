@@ -166,10 +166,10 @@ function App() {
   async function loadGallery() {
     setGalleryLoading(true); setGalleryError('')
     try {
-      const response = await fetch('/api/gallery?limit=12')
+      const response = await fetch('/api/gallery?limit=8')
       const payload = await response.json().catch(() => null)
       if (!response.ok || !payload || !Array.isArray(payload.items)) throw new Error(payload?.error || 'Galeri tidak dapat dimuat. Coba lagi.')
-      setGallery(payload.items)
+      setGallery(payload.items.slice(0, 8))
     } catch (err) {
       setGallery([])
       setGalleryError(err.message || 'Galeri tidak dapat dimuat. Coba lagi.')
@@ -292,20 +292,12 @@ const GENERATING_MESSAGES = [
 
 function GeneratingScreen({ photo }) {
   const [messageIndex, setMessageIndex] = useState(0)
-  const [photoSize, setPhotoSize] = useState({ width: '66%', height: '66%' })
-  function fitPhoto(event) {
-    const { naturalWidth, naturalHeight } = event.currentTarget
-    const diagonal = Math.hypot(naturalWidth, naturalHeight)
-    if (!diagonal) return
-    // Fit every corner inside the circle, for landscape and portrait photos.
-    setPhotoSize({ width: `${94 * naturalWidth / diagonal}%`, height: `${94 * naturalHeight / diagonal}%` })
-  }
   useEffect(() => {
     const timer = window.setInterval(() => setMessageIndex((index) => (index + 1) % GENERATING_MESSAGES.length), 5000)
     return () => window.clearInterval(timer)
   }, [])
   const message = GENERATING_MESSAGES[messageIndex]
-  return <main className="generating screen-content"><div className="generating-orbit"><div className="orbit-ring" /><div className="generating-photo"><img src={photo} style={photoSize} onLoad={fitPhoto} alt="Foto seluruh pengunjung yang sedang diproses" /></div></div><p className="eyebrow">FOTO SEDANG DIPROSES</p><div className="generating-message" role="status" aria-live="polite" aria-atomic="true"><h1>{message.title}<br /><em>{message.emphasis}</em></h1><p className="generating-note">{message.note}</p></div><div className="loading-line"><span /></div><small>Waktu proses dapat berbeda untuk setiap foto.</small></main>
+  return <main className="generating screen-content"><div className="generating-photo"><img src={photo} alt="Foto seluruh pengunjung yang sedang diproses" /></div><p className="eyebrow">FOTO SEDANG DIPROSES</p><div className="generating-message" role="status" aria-live="polite" aria-atomic="true"><h1>{message.title}<br /><em>{message.emphasis}</em></h1><p className="generating-note">{message.note}</p></div><div className="loading-line"><span /></div><small>Waktu proses dapat berbeda untuk setiap foto.</small></main>
 }
 
 function EmailPhotoForm({ delivery, sessionExpiresAt }) {
@@ -418,10 +410,51 @@ function ResultExpiryDialog({ remaining, extending, error, canExtend, onContinue
   </section></div>
 }
 
+function handleGalleryDialogKey(event, dialogRef, onClose) {
+  if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); onClose(); return }
+  if (event.key !== 'Tab') return
+  const buttons = [...dialogRef.current.querySelectorAll('button:not(:disabled)')]
+  const first = buttons[0]; const last = buttons[buttons.length - 1]
+  if (!first) return
+  if (event.shiftKey && (document.activeElement === first || document.activeElement === dialogRef.current)) { event.preventDefault(); last.focus() }
+  else if (!event.shiftKey && (document.activeElement === last || document.activeElement === dialogRef.current)) { event.preventDefault(); first.focus() }
+}
+
 function GalleryModal({ items, loading, error, onRetry, onClose }) {
+  const [selectedPhoto, setSelectedPhoto] = useState(null)
   const dialogRef = useRef(null)
-  useEffect(() => { dialogRef.current?.focus(); const onKeyDown = (event) => event.key === 'Escape' && onClose(); document.addEventListener('keydown', onKeyDown); return () => document.removeEventListener('keydown', onKeyDown) }, [onClose])
-  return <div className="modal-backdrop" onClick={onClose}><section className="gallery-modal" ref={dialogRef} tabIndex="-1" role="dialog" aria-modal="true" aria-labelledby="gallery-title" onClick={(event) => event.stopPropagation()}><div className="modal-header"><div><p className="eyebrow">ARSIP VISUAL MUSEUM</p><h2 id="gallery-title">Galeri <em>terbaru.</em></h2></div><button className="close-button" onClick={onClose} aria-label="Tutup galeri">×</button></div><p className="modal-copy">Potret pengunjung yang ikut menghidupkan kisah Museum R.A. Kartini.</p>{loading ? <div className="gallery-status" role="status">Memuat galeri terbaru…</div> : error ? <div className="gallery-status error-message" role="alert">{error}<button className="text-button" onClick={onRetry}>Coba lagi</button></div> : <div className="gallery-grid">{items.length ? items.map((item) => <img key={item.thumbnailUrl || item.imageUrl} src={item.thumbnailUrl || item.imageUrl} alt="Potret pengunjung museum" loading="lazy" />) : <div className="empty-gallery">Belum ada hasil di galeri. Jadilah yang pertama membuat kisah.</div>}</div>}</section></div>
+  const photoTriggerRef = useRef(null)
+  const visibleItems = items.slice(0, 8)
+  useEffect(() => {
+    const previousFocus = document.activeElement
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    dialogRef.current?.focus()
+    return () => { document.body.style.overflow = previousOverflow; if (previousFocus?.isConnected) previousFocus.focus() }
+  }, [])
+  return <>
+    <div className="modal-backdrop" onClick={onClose} inert={selectedPhoto ? true : undefined} aria-hidden={selectedPhoto ? true : undefined}>
+      <section className="gallery-modal" ref={dialogRef} tabIndex="-1" role="dialog" aria-modal="true" aria-labelledby="gallery-title" onClick={(event) => event.stopPropagation()} onKeyDown={(event) => handleGalleryDialogKey(event, dialogRef, onClose)}>
+        <div className="modal-header"><div><p className="eyebrow">ARSIP VISUAL MUSEUM</p><h2 id="gallery-title">Galeri <em>terbaru.</em></h2></div><button className="close-button" onClick={onClose} aria-label="Tutup galeri">×</button></div>
+        <p className="modal-copy">Maksimal 8 foto terbaru. Sentuh foto untuk melihat lebih dekat.</p>
+        {loading ? <div className="gallery-status" role="status">Memuat galeri terbaru…</div> : error ? <div className="gallery-status error-message" role="alert">{error}<button className="text-button" onClick={onRetry}>Coba lagi</button></div> : <div className="gallery-grid">{visibleItems.length ? visibleItems.map((item, index) => <button className="gallery-photo-button" key={item.thumbnailUrl || item.imageUrl} onClick={(event) => { photoTriggerRef.current = event.currentTarget; setSelectedPhoto({ src: item.thumbnailUrl || item.imageUrl, index }) }} aria-label={`Lihat detail foto ${index + 1}`}><img src={item.thumbnailUrl || item.imageUrl} alt="Potret pengunjung museum" loading="lazy" /></button>) : <div className="empty-gallery">Belum ada hasil di galeri. Jadilah yang pertama membuat kisah.</div>}</div>}
+      </section>
+    </div>
+    {selectedPhoto && <GalleryPhotoDialog photo={selectedPhoto} total={visibleItems.length} returnFocusRef={photoTriggerRef} onClose={() => setSelectedPhoto(null)} />}
+  </>
+}
+
+function GalleryPhotoDialog({ photo, total, returnFocusRef, onClose }) {
+  const dialogRef = useRef(null)
+  useEffect(() => {
+    const previousFocus = returnFocusRef.current || document.activeElement
+    dialogRef.current?.focus()
+    return () => { if (previousFocus?.isConnected) previousFocus.focus() }
+  }, [returnFocusRef])
+  return <div className="modal-backdrop gallery-detail-backdrop" onClick={onClose}><section className="gallery-detail" ref={dialogRef} tabIndex="-1" role="dialog" aria-modal="true" aria-labelledby="gallery-detail-title" onClick={(event) => event.stopPropagation()} onKeyDown={(event) => handleGalleryDialogKey(event, dialogRef, onClose)}>
+    <div className="modal-header"><div><p className="eyebrow">FOTO {photo.index + 1} DARI {total}</p><h2 id="gallery-detail-title">Foto <em>kenangan.</em></h2></div><button className="close-button" onClick={onClose} aria-label="Tutup detail foto">×</button></div>
+    <img className="gallery-detail-image" src={photo.src} alt={`Foto kenangan pengunjung museum ${photo.index + 1}`} />
+  </section></div>
 }
 
 function FlowHeading({ kicker, title, copy, children }) { return <div className="flow-heading"><div className="flow-identity"><img src="/assets/logo/logo-museum.webp" alt="" /><span>MUSEUM R.A. KARTINI · REMBANG</span></div><p className="eyebrow">{kicker}</p><h1>{title}</h1><p>{copy}</p>{children}</div> }

@@ -112,8 +112,13 @@ Saat jumlah tidak diisi, tidak ada default satu orang. Referensi wajib yang
 hilang menghasilkan error, bukan fallback ke ilustrasi berisi orang contoh.
 Prompt aset, sumber, dan batas verifikasi ada di [docs/reference-backgrounds.md](docs/reference-backgrounds.md).
 
-Pada loading, bingkai tetap bulat tetapi seluruh foto dimuat tanpa crop,
+Pada loading, foto tampil utuh dalam bingkai persegi panjang tanpa crop,
 termasuk orang di ujung foto grup. Ini hanya pratinjau; input AI adalah foto utuh.
+
+Galeri menampilkan maksimal delapan hasil terbaru. Sentuh thumbnail untuk
+membuka foto utuh dalam pop-up detail; tombol **×**, Escape, atau sentuhan di
+luar detail menutupnya dan mengembalikan ke daftar galeri. Pratinjau detail
+memakai WebP galeri publik; token unduh PNG tetap privat pada sesi hasil.
 
 Setelah QR habis, pop-up memberikan 10 detik untuk memilih **Lanjutkan (15 detik)**
 atau **Keluar**. Tanpa tindakan, kembali ke beranda. Lanjutkan mengaktifkan
@@ -189,7 +194,7 @@ akun mendukungnya, [app password memerlukan 2-Step Verification](https://support
 ## Main API
 
 - `GET /api/health`: readiness and provider mode.
-- `GET /api/gallery?limit=12`: newest public thumbnails only (max 20).
+- `GET /api/gallery?limit=8`: newest public thumbnails only (default and maximum 8).
 - `POST /api/generate`: internal multipart camera capture with `photo`, `sceneId`, and `characterId`; optional `people` (1–3) is accepted independently; legacy `guests` data is validated when supplied; the kiosk does not expose a file-upload control.
 - `POST /api/results/:token/email`: token sesi aktif + JSON `{ "email": "..." }`; membuat job pengiriman lampiran.
 - `GET /api/results/:token/email`: status job tanpa menampilkan alamat penerima.
