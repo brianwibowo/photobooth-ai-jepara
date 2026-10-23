@@ -26,6 +26,15 @@ services:
       RESULT_RETENTION_MS: ${RESULT_RETENTION_MS:-604800000}
       # Optional museum export endpoint; keep the token only in the VPS .env.
       ADMIN_TOKEN: ${ADMIN_TOKEN:-}
+      EMAIL_ENABLED: ${EMAIL_ENABLED:-false}
+      EMAIL_FROM: ${EMAIL_FROM:-}
+      EMAIL_FROM_NAME: ${EMAIL_FROM_NAME:-Museum R.A. Kartini}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_SECURE: ${SMTP_SECURE:-false}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      EMAIL_DAILY_LIMIT: ${EMAIL_DAILY_LIMIT:-200}
       MAX_UPLOAD_MB: "8"
       NODE_OPTIONS: --max-old-space-size=512
       MALLOC_ARENA_MAX: "2"

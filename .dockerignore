@@ -12,3 +12,8 @@
 !server/**
 !public/
 !public/**
+# Keep the original scene PNGs and source portraits out of the VPS image.
+# Runtime uses only display.webp / reference.webp from each figure directory.
+public/assets/tokoh_pahlawan/**/*.png
+public/assets/tokoh_pahlawan/**/referensi/**
+public/assets/**/.DS_Store

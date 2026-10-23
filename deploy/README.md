@@ -102,6 +102,22 @@ panjang (contoh: `openssl rand -hex 32`). Endpoint itu tidak dibuka oleh fronten
 gunakan header `Authorization: Bearer <token>` atau `X-Admin-Token` dari kanal admin
 yang aman. Biarkan kosong bila ekspor belum diperlukan.
 
+### Email foto opsional
+
+Siapkan akun SMTP dan alamat pengirim yang diizinkan provider. Tambahkan variabel
+`EMAIL_ENABLED`, `EMAIL_FROM`, `EMAIL_FROM_NAME`, `SMTP_HOST`, `SMTP_PORT`,
+`SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`, dan `EMAIL_DAILY_LIMIT` dari
+[contoh konfigurasi](../.env.docker.example) ke `.env` yang sudah ada. Akses keluar
+TCP 587 (STARTTLS) atau 465 (TLS) harus tersedia; tidak perlu membuka port SMTP
+masuk. Bila memakai domain sendiri, pasang SPF/DKIM sesuai provider SMTP.
+
+Kredensial tidak dikirim ke browser. Foto dan antrean SQLite memakai volume
+`photobooth_data` yang sama. Setelah build/restart, jalankan
+`docker compose exec app npm run email:verify` untuk mengecek koneksi dan
+login SMTP tanpa mengirim email. Lanjutkan dengan satu uji foto → email ke alamat
+operator untuk memeriksa attachment dan inbox/spam. Detail mekanisme dan batas
+pengiriman ada di [README](../README.md#email-foto-dari-vps).
+
 ## 3. Build dan jalankan
 
 Perintah berikut mengasumsikan akses Docker tersedia. Tambahkan `sudo` bila perlu.

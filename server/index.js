@@ -10,6 +10,7 @@ import fsSync from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { characters, scenes, getCharacter, getScene } from '../src/data.js'
+import { createPhotoEmailService } from './photo-email.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const root = path.resolve(__dirname, '..')
@@ -152,6 +153,7 @@ export function createApp(options = {}) {
   fsSync.mkdirSync(generatedDir, { recursive: true })
   fsSync.mkdirSync(uploadDir, { recursive: true })
   const db = options.db || createDatabase(dataDir)
+  const photoEmail = createPhotoEmailService({ db, generatedDir, ...options.emailOptions })
   const fetchImpl = options.fetchImpl || globalThis.fetch
   const publicBaseUrl = (options.publicBaseUrl || process.env.PUBLIC_BASE_URL || `http://localhost:${process.env.PORT || 8787}`).replace(/\/$/, '')
   const maxUploadMb = Number(options.maxUploadMb || process.env.MAX_UPLOAD_MB || DEFAULT_MAX_UPLOAD_MB)
@@ -171,7 +173,7 @@ export function createApp(options = {}) {
 
   async function cleanupExpiredResults() {
     if (!(resultRetentionMs > 0)) return 0
-    const rows = db.prepare('SELECT id, image_file, thumbnail_file, created_at, expires_at FROM results').all()
+    const rows = db.prepare("SELECT id, image_file, thumbnail_file, created_at, expires_at FROM results WHERE NOT EXISTS (SELECT 1 FROM photo_emails e WHERE e.result_id = results.id AND e.status = 'sending')").all()
       .filter((row) => {
         const retentionExpiry = row.expires_at ? new Date(row.expires_at) : new Date(new Date(row.created_at).getTime() + resultRetentionMs)
         return Number.isFinite(retentionExpiry.getTime()) && retentionExpiry.getTime() <= Date.now()
@@ -179,8 +181,10 @@ export function createApp(options = {}) {
     if (!rows.length) return 0
     const remove = db.transaction((expired) => {
       const deleteGuests = db.prepare('DELETE FROM guests WHERE result_id = ?')
+      const deleteEmails = db.prepare('DELETE FROM photo_emails WHERE result_id = ?')
       const deleteResult = db.prepare('DELETE FROM results WHERE id = ?')
       for (const row of expired) {
+        deleteEmails.run(row.id)
         deleteGuests.run(row.id)
         deleteResult.run(row.id)
       }
@@ -216,8 +220,11 @@ export function createApp(options = {}) {
   app.use('/assets', express.static(path.join(root, 'public', 'assets'), { maxAge: '30d', immutable: true }))
 
   function validateGuestPayload(body) {
+    // Visitor count is optional and independent of legacy guest book data.
+    if (body.people === undefined && body.guests === undefined) return null
     const people = Number(body.people)
     if (!Number.isInteger(people) || people < 1 || people > MAX_PEOPLE) return 'Jumlah pengunjung harus 1–3 orang.'
+    if (body.guests === undefined) return null
     const guests = safeJson(body.guests, null)
     if (!Array.isArray(guests) || guests.length !== people) return 'Data pengunjung belum lengkap.'
     for (const guest of guests) {
@@ -262,7 +269,7 @@ export function createApp(options = {}) {
     return Buffer.from(image, 'base64')
   }
 
-  async function generateWithGemini({ photoBuffer, sceneId, characterId, people, guests }) {
+  async function generateWithGemini({ photoBuffer, sceneId, characterId, people }) {
     const apiKey = process.env.GEMINI_API_KEY
     if (!apiKey) throw Object.assign(new Error('missing api key'), { code: 'MISSING_API_KEY' })
     const configuredModel = process.env.GEMINI_MODEL || DEFAULT_MODEL
@@ -270,13 +277,9 @@ export function createApp(options = {}) {
     const character = characterMap[characterId] || getCharacter(characterId)
     const visitor = await sharp(photoBuffer).rotate().resize({ width: 1536, withoutEnlargement: true }).jpeg({ quality: 88 }).toBuffer()
 
-    const guestListStr = Array.isArray(guests) && guests.length > 0
-      ? guests.map((g, i) => `Visitor ${i + 1}: ${g.gender === 'Laki-laki' ? 'Male (man/boy)' : 'Female (woman/girl)'} named "${g.name}"`).join('; ')
-      : `${people} visitor(s)`
-
     const prompt = [
       `Create one authentic, photorealistic commemorative museum photograph taken inside Museum R.A. Kartini Rembang.`,
-      `There must be exactly ${people} visitor(s) from the visitor reference plus exactly one historical figure: ${character.name}. Preserve every visitor's real face, facial proportions, gender, skin tone, age, and left-to-right order.`,
+      `${people ? `There must be exactly ${people} visitor(s) from Reference 1` : 'Include every visitor visible in Reference 1, keeping exactly the same number of visitors'} plus exactly one historical figure: ${character.name}. Preserve every visitor's real face, facial proportions, appearance, skin tone, age, and left-to-right order. Do not invent visitor names or demographic information.`,
       `Reference order is strict: Reference 1 is the visitor photo and the only source for visitor identities; Reference 2 is the selected historical figure; Reference 3 is the selected museum background. Ignore incidental people visible in References 2 and 3.`,
       `The historical figure ${character.name} must keep the same face, hairstyle, age, and authentic Javanese period clothing as Reference 2. ${character.prompt || ''}`,
       `Place everyone naturally in ${scene.name}, ${scene.location}, preserving the architecture and lighting from Reference 3. ${scene.prompt || ''}`,
@@ -319,11 +322,11 @@ export function createApp(options = {}) {
 
     const guestListStr = Array.isArray(guests) && guests.length > 0
       ? guests.map((g, i) => `Visitor ${i + 1}: ${g.gender === 'Laki-laki' ? 'Male (man/boy)' : 'Female (woman/girl)'} named "${g.name}"`).join('; ')
-      : `${people} visitor(s)`
+      : 'Every visitor visible in Reference 1; the visitor photo is the sole source of their number and appearance'
 
     const prompt = [
       `Create one authentic, photorealistic commemorative museum photograph for Museum R.A. Kartini Rembang.`,
-      `There must be exactly ${people} visitor(s) from the visitor reference photo plus exactly one historical figure: ${character.name}. Do not add, remove, duplicate, or merge people.`,
+      `${people ? `There must be exactly ${people} visitor(s) from Reference 1` : 'Include every visitor visible in Reference 1, keeping exactly the same number of visitors'} plus exactly one historical figure: ${character.name}. Do not add, remove, duplicate, or merge people. Do not invent visitor names or demographic information.`,
       `Visitors in the source photo: ${guestListStr}. Preserve every visitor's real face, facial proportions, eye shape, nose, mouth, hair, skin tone, age, body proportions, gender, and recognizable identity. Keep the same left-to-right face order as the source photo. The result must still look like the same people photographed in a new place.`,
       `REFERENCE ORDER IS STRICT: Reference 1 is the visitor photo and is the only source for visitor identities. Reference 2 is the selected historical figure and is the only source for that figure's face and clothing. Reference 3 is the selected museum background and is the only source for architecture and location. Ignore and never copy any incidental people visible in References 2 or 3.`,
       `The selected figure ${character.name} must remain visually consistent with Reference 2: same face, age, hairstyle, period-appropriate Javanese clothing, and calm natural expression. ${character.prompt || ''}`,
@@ -468,6 +471,7 @@ export function createApp(options = {}) {
     else if (hasGemini) mode = 'gemini'
     return res.json({
       ok: true,
+      emailAvailable: photoEmail.available,
       mode,
       openrouterModel: process.env.OPENROUTER_MODEL || process.env.AI_INFOGRAPHIC_MODEL || 'openai/gpt-image-2.5-flare',
       geminiModel: process.env.GEMINI_MODEL || DEFAULT_MODEL
@@ -510,7 +514,7 @@ export function createApp(options = {}) {
     const { sceneId, characterId } = req.body
     const scene = sceneMap[sceneId]; const character = characterMap[characterId]
     if (!scene || !character || !Array.isArray(scene.characterIds) || !scene.characterIds.includes(characterId)) return res.status(400).json({ error: 'Adegan atau tokoh tidak valid.', code: 'CONFIG_INVALID', retryable: false })
-    const people = Number(req.body.people)
+    const people = req.body.people === undefined ? null : Number(req.body.people)
     const guestError = validateGuestPayload(req.body)
     if (guestError) return res.status(400).json({ error: guestError, code: 'GUESTS_INVALID', retryable: false })
     if (!(await acquireSlot())) return res.status(429).json({ error: 'Photobooth sedang sibuk. Silakan coba lagi sebentar.', code: 'GENERATION_BUSY', retryable: true })
@@ -578,12 +582,23 @@ export function createApp(options = {}) {
       })()
       const downloadUrl = `${publicBaseUrl}/api/download/${token}`
       const downloadSeconds = Math.max(1, Math.ceil(downloadTtlMs / 1000))
-      return res.json({ id: resultId, imageUrl: `/api/download/${token}`, thumbnailUrl: `/api/gallery/image/${encodeURIComponent(thumbFile)}`, qrUrl: downloadUrl, provider, expiresIn: `${downloadSeconds} detik`, downloadExpiresAt, retentionExpiresAt: expiresAt })
+      return res.json({ id: resultId, imageUrl: `/api/download/${token}`, thumbnailUrl: `/api/gallery/image/${encodeURIComponent(thumbFile)}`, qrUrl: downloadUrl, provider, expiresIn: `${downloadSeconds} detik`, downloadExpiresAt, retentionExpiresAt: expiresAt, email: { available: photoEmail.available, endpoint: `/api/results/${token}/email` } })
     } catch (error) {
       await Promise.all(writtenFiles.map(async (file) => { try { await fs.unlink(path.join(generatedDir, file)) } catch { /* best effort */ } }))
       console.error('Generation persistence failed', error?.code || 'UNKNOWN')
       return res.status(500).json({ error: 'Foto belum dapat disimpan. Silakan coba lagi.', code: 'RESULT_SAVE_FAILED', retryable: true })
     } finally { releaseSlot() }
+  })
+
+  app.post('/api/results/:token/email', (req, res) => {
+    res.set('Cache-Control', 'private, no-store')
+    const { code, ...payload } = photoEmail.enqueue(req.params.token, req.body?.email, req.ip)
+    return res.status(code).json(payload)
+  })
+  app.get('/api/results/:token/email', (req, res) => {
+    res.set('Cache-Control', 'private, no-store')
+    const { code, ...payload } = photoEmail.status(req.params.token)
+    return res.status(code).json(payload)
   })
 
   app.get('/api/download/:token', (req, res) => {
@@ -608,12 +623,18 @@ export function createApp(options = {}) {
   })
 
   if (process.env.NODE_ENV === 'production') { app.use(express.static(path.join(root, 'dist'))); app.use((_req, res) => res.sendFile(path.join(root, 'dist', 'index.html'))) }
-  return { app, db, close: () => { clearInterval(cleanupTimer); db.close() } }
+  return { app, db, photoEmail, close: async () => { clearInterval(cleanupTimer); await photoEmail.close(); db.close() } }
 }
 
 const isMain = process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href
 if (isMain) {
-  const { app } = createApp()
+  const { app, close } = createApp()
   const port = Number(process.env.PORT || 8787)
-  app.listen(port, () => console.log(`Photobooth server listening on ${port}`))
+  const server = app.listen(port, () => console.log(`Photobooth server listening on ${port}`))
+  const shutdown = () => {
+    server.close(async () => { await close(); process.exit(0) })
+    setTimeout(() => process.exit(1), 40000).unref()
+  }
+  process.once('SIGTERM', shutdown)
+  process.once('SIGINT', shutdown)
 }

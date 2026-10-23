@@ -1,0 +1,31 @@
+import { access } from 'node:fs/promises'
+import { fileURLToPath } from 'node:url'
+import { characters, scenes, logos } from '../src/data.js'
+
+const paths = new Set([
+  ...characters.flatMap(({ image, reference }) => [image, reference]),
+  ...scenes.flatMap(({ image, background }) => [image, background]),
+  ...logos.map(({ src }) => src),
+])
+const issues = []
+for (const asset of paths) {
+  if (!asset?.startsWith('/assets/')) {
+    issues.push(`Path aset tidak valid: ${asset}`)
+    continue
+  }
+  try { await access(fileURLToPath(new URL(`../public${asset}`, import.meta.url))) }
+  catch { issues.push(`Aset tidak ditemukan: ${asset}`) }
+}
+const ids = new Set(characters.map(({ id }) => id))
+if (ids.size !== characters.length) issues.push('ID tokoh duplikat.')
+for (const scene of scenes) {
+  if (!scene.characterIds.length) issues.push(`Adegan ${scene.id} belum memiliki tokoh.`)
+  for (const id of scene.characterIds) if (!ids.has(id)) issues.push(`Tokoh ${id} di adegan ${scene.id} tidak ditemukan.`)
+}
+for (const id of ids) if (!scenes.some(({ characterIds }) => characterIds.includes(id))) issues.push(`Tokoh ${id} belum bisa dipilih.`)
+if (issues.length) {
+  console.error(issues.join('\n'))
+  process.exitCode = 1
+} else {
+  console.log(`Aset valid: ${characters.length} tokoh, ${scenes.length} latar, ${logos.length} logo (${paths.size} file).`)
+}
