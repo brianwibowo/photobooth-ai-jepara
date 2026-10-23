@@ -22,12 +22,10 @@ function App() {
   const [error, setError] = useState('')
   const [isGalleryOpen, setIsGalleryOpen] = useState(false)
   const [isBusy, setIsBusy] = useState(false)
-  const [generationNote, setGenerationNote] = useState('Menyiapkan ruang dan cahaya museum…')
   const [qrData, setQrData] = useState('')
   const [cameraReady, setCameraReady] = useState(false)
   const [resultRemaining, setResultRemaining] = useState(60)
   const generateControllerRef = useRef(null)
-  const generationTimerRef = useRef(null)
   const idleTimerRef = useRef(null)
   const resultTimerRef = useRef(null)
   const galleryTimerRef = useRef(null)
@@ -40,7 +38,7 @@ function App() {
   const character = useMemo(() => characters.find((item) => item.id === characterId) || null, [characterId])
   const stepIndex = Math.max(0, STEPS.indexOf(screen))
 
-  useEffect(() => () => { stopCamera(); generateControllerRef.current?.abort(); clearTimeout(generationTimerRef.current); clearTimeout(idleTimerRef.current); clearTimeout(galleryTimerRef.current); clearInterval(resultTimerRef.current); if (photoUrlRef.current) URL.revokeObjectURL(photoUrlRef.current) }, [])
+  useEffect(() => () => { stopCamera(); generateControllerRef.current?.abort(); clearTimeout(idleTimerRef.current); clearTimeout(galleryTimerRef.current); clearInterval(resultTimerRef.current); if (photoUrlRef.current) URL.revokeObjectURL(photoUrlRef.current) }, [])
   useEffect(() => { window.scrollTo(0, 0) }, [screen])
   useEffect(() => { if (isGalleryOpen) loadGallery() }, [isGalleryOpen])
   useEffect(() => {
@@ -143,12 +141,11 @@ function App() {
   async function generate() {
     if (isBusy) return
     if (!photoFile || !scene || !character) return setError('Foto, tempat, dan tokoh wajib dipilih.')
-    setError(''); setGenerationNote('Mengunci komposisi bersama tokoh pilihan…'); setScreen('generating'); setIsBusy(true)
+    setError(''); setScreen('generating'); setIsBusy(true)
     const body = new FormData(); body.append('photo', photoFile); body.append('sceneId', scene.id); body.append('characterId', character.id)
     if (people !== null) body.append('people', String(people))
     const controller = new AbortController(); generateControllerRef.current = controller
     try {
-      generationTimerRef.current = setTimeout(() => setGenerationNote('Menyusun cahaya hangat dan detail sejarah…'), 1500)
       const response = await fetch('/api/generate', { method: 'POST', body, signal: controller.signal })
       const payload = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(payload.error || 'Generasi foto gagal.')
@@ -157,7 +154,7 @@ function App() {
       if (err.name === 'AbortError') return
       setScreen('confirm')
       setError(err.message || 'Generasi foto gagal. Coba lagi tanpa mengulang pilihan dan foto.')
-    } finally { clearTimeout(generationTimerRef.current); generateControllerRef.current = null; setIsBusy(false) }
+    } finally { generateControllerRef.current = null; setIsBusy(false) }
   }
   async function loadGallery() {
     setGalleryLoading(true); setGalleryError('')
@@ -179,7 +176,7 @@ function App() {
     {screen === 'character' && <CharacterPicker scene={scene} character={character} onSelect={setCharacterId} onNext={() => { if (scene && character) go('camera') }} onBack={() => go('scene')} />}
     {screen === 'camera' && <CameraScreen people={people} onPeople={setPeople} videoRef={videoRef} cameraReady={cameraReady} onStart={startCamera} onStop={stopCamera} onCapture={capturePhoto} onBack={() => { stopCamera(); go('character') }} error={error} />}
     {screen === 'confirm' && <ConfirmScreen people={people} photo={photo} scene={scene} character={character} onBack={() => go('camera')} onGenerate={generate} error={error} />}
-    {screen === 'generating' && <GeneratingScreen photo={photo} note={generationNote} />}
+    {screen === 'generating' && <GeneratingScreen photo={photo} />}
     {screen === 'result' && <ResultScreen result={result} qrData={qrData} remaining={resultRemaining} onNew={newSession} onGallery={() => setIsGalleryOpen(true)} onPrint={() => window.print()} />}
 
     {STEPS.includes(screen) && <Progress current={stepIndex} />}
@@ -192,16 +189,24 @@ function LogoStrip() {
 }
 
 function Home({ onStart, onGallery }) {
+  const [activeImage, setActiveImage] = useState(0)
+  useEffect(() => {
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return undefined
+    const timer = window.setInterval(() => {
+      if (!document.hidden) setActiveImage((index) => (index + 1) % characters.length)
+    }, 6000)
+    return () => window.clearInterval(timer)
+  }, [])
   return <main className="home screen-content">
     <section className="hero-copy">
       <LogoStrip />
       <p className="eyebrow">Photobooth AI · Museum R.A. Kartini, Rembang</p>
       <h1>Jadi bagian dari<br /><em>kisah Kartini.</em></h1>
       <p className="intro">Berfoto bersama Kartini dan tokoh di sekitarnya. Pilih suasananya, ambil foto, lalu bawa pulang kenanganmu.</p>
-      <div className="home-actions"><button className="button primary" onClick={onStart}>Mulai berfoto <span>→</span></button><button className="text-button" onClick={onGallery}>Lihat galeri <span>↗</span></button></div>
+      <div className="home-actions"><button className="button primary" onClick={onStart}>Mulai berfoto <span>→</span></button><button className="button outline gallery-button" onClick={onGallery}>Lihat galeri <span>↗</span></button></div>
       <div className="home-note"><span className="ornament">✦</span><span>Sendiri atau bersama · Langsung ambil foto<br />Pindai QR untuk menyimpan hasil ke ponsel.</span></div>
     </section>
-    <section className="hero-visual"><div className="hero-image"><img src={characters[0].image} alt="Contoh foto kenangan bersama R.A. Kartini di museum" /><div className="image-tint" /></div><div className="hero-caption"><span>KENANGAN BARU, KISAH YANG ABADI</span><strong>Kamu, di antara cerita.</strong><small>Ilustrasi pengalaman foto bersama tokoh</small></div></section>
+    <section className="hero-visual" aria-label="Contoh foto bersama tokoh museum"><div className="hero-image">{characters.map((item, index) => <img key={item.id} className={index === activeImage ? 'active' : ''} src={item.image} alt={index === activeImage ? `Contoh foto bersama ${item.name}` : ''} aria-hidden={index !== activeImage} />)}</div></section>
   </main>
 }
 
@@ -247,7 +252,24 @@ function CameraScreen({ people, onPeople, videoRef, cameraReady, onStart, onStop
 
 function ConfirmScreen({ people, photo, scene, character, onBack, onGenerate, error }) { return <main className="flow screen-content horizontal-flow confirm-screen"><FlowHeading kicker="04 / CEK FOTO" title={<>Sudah siap<br /><em>jadi kenangan?</em></>} copy="Periksa foto dan pilihanmu sebelum kami menyusun hasil akhir." /><div className="confirm-layout"><div className="photo-preview"><img src={photo} alt="Pratinjau foto pengunjung" /><div className="photo-label">FOTO KAMU{people !== null && ` · ${people} PENGUNJUNG`}</div></div><div className="summary-card"><span className="summary-kicker">KISAH PILIHANMU</span><h3>{scene?.name}</h3><p>{scene?.location}</p><div className="summary-character"><img src={character?.reference} alt="" /><span><small>Bersama</small><strong>{character?.name}</strong></span></div><p className="privacy-note">Pastikan semua wajah terlihat jelas. Kamu bisa mengambil ulang foto sebelum melanjutkan.</p></div></div><div className="flow-footer">{error && <ErrorMessage text={error} />}<div className="flow-actions"><BackButton onClick={onBack} label="Ambil ulang" /><button className="button primary" onClick={onGenerate}>{error ? 'Coba lagi' : 'Buat foto kenangan'} <span>→</span></button></div></div></main> }
 
-function GeneratingScreen({ photo, note }) { return <main className="generating screen-content"><div className="generating-orbit"><div className="orbit-ring" /><img src={photo} alt="" /></div><p className="eyebrow">FOTO SEDANG DIPROSES</p><h1>Menyusun kisah<br /><em>untukmu…</em></h1><p className="generating-note">{note}</p><div className="loading-line"><span /></div><small>Biasanya selesai dalam 15–45 detik</small></main> }
+const GENERATING_MESSAGES = [
+  { title: 'Menyusun kisah', emphasis: 'untukmu…', note: 'Foto dan pilihanmu menjadi awal sebuah kenangan.' },
+  { title: 'Merangkai suasana', emphasis: 'di museum…', note: 'Tokoh dan tempat pilihanmu menghidupkan cerita.' },
+  { title: 'Menghadirkan', emphasis: 'cahaya hangat…', note: 'Cahaya, warna, dan suasana untuk potret kenanganmu.' },
+  { title: 'Merawat detail', emphasis: 'setiap wajah…', note: 'Senyum dan ciri khasmu menjadi bagian penting dari foto ini.' },
+  { title: 'Memadukan cerita', emphasis: 'lintas masa…', note: 'Kamu dan tokoh pilihanmu, dalam satu bingkai.' },
+  { title: 'Menanti potret', emphasis: 'kenanganmu…', note: 'AI masih mengolah foto. Tetap di sini sampai hasilnya tampil.' },
+]
+
+function GeneratingScreen({ photo }) {
+  const [messageIndex, setMessageIndex] = useState(0)
+  useEffect(() => {
+    const timer = window.setInterval(() => setMessageIndex((index) => (index + 1) % GENERATING_MESSAGES.length), 5000)
+    return () => window.clearInterval(timer)
+  }, [])
+  const message = GENERATING_MESSAGES[messageIndex]
+  return <main className="generating screen-content"><div className="generating-orbit"><div className="orbit-ring" /><img src={photo} alt="" /></div><p className="eyebrow">FOTO SEDANG DIPROSES</p><div className="generating-message" role="status" aria-live="polite" aria-atomic="true"><h1>{message.title}<br /><em>{message.emphasis}</em></h1><p className="generating-note">{message.note}</p></div><div className="loading-line"><span /></div><small>Waktu proses dapat berbeda untuk setiap foto.</small></main>
+}
 
 function EmailPhotoForm({ delivery }) {
   const [email, setEmail] = useState('')
@@ -325,12 +347,12 @@ function ResultScreen({ result, qrData, remaining, onNew, onGallery, onPrint }) 
     <div className="result-layout">
       <div className="polaroid"><img src={result?.imageUrl} alt="Hasil foto kenangan" /><div className="polaroid-footer"><img src="/assets/logo/logo-museum.webp" alt="Museum R.A. Kartini" /><span>Sejarah bukan hanya<br /><b>untuk dikenang.</b></span></div></div>
       <div className="result-tools">
-        <div className="qr-card"><div>{qrData ? <img src={qrData} alt="QR code untuk mengunduh foto" /> : <div className="qr-placeholder" aria-label="QR code sedang disiapkan">QR</div>}</div><div><strong>Scan untuk membawa<br />pulang fotomu</strong><small>QR tersedia {remaining} detik. Sesi berikutnya akan dimulai otomatis.</small></div></div>
+        <div className="qr-card"><div>{qrData ? <img src={qrData} alt="QR code untuk mengunduh foto" /> : <div className="qr-placeholder" aria-label="QR code sedang disiapkan">QR</div>}</div><div><strong>Scan untuk membawa<br />pulang fotomu</strong><small><b className="qr-expiry">QR tersedia {remaining} detik</b><br />Sesi berikutnya akan dimulai otomatis.</small></div></div>
         <EmailPhotoForm key={result?.id || result?.imageUrl} delivery={result?.email} />
         <div className="result-download-actions"><a className="button secondary download-button" href={result?.imageUrl} download="kisah-kartini.png">Unduh PNG <span>↓</span></a><button className="button secondary print-button" onClick={onPrint}>Cetak <span>↗</span></button></div>
       </div>
     </div>
-    <div className="result-actions"><button className="text-button" onClick={onGallery}>Lihat galeri <span>↗</span></button><button className="button outline" onClick={onNew}>Mulai sesi baru <span>↻</span></button></div>
+    <div className="result-actions"><button className="button outline gallery-button" onClick={onGallery}>Lihat galeri <span>↗</span></button><button className="button outline" onClick={onNew}>Mulai sesi baru <span>↻</span></button></div>
   </main>
 }
 

@@ -73,6 +73,13 @@ API mengirim angka tersebut sebagai batasan prompt tanpa membutuhkan data tamu. 
 tersedia sebelum generasi, termasuk opsi ambil ulang. Header terpisah dihapus;
 logo ditempatkan di konten utama. Layout mendukung kiosk landscape dan portrait.
 
+Pada beranda landscape, teks mengisi sisi kiri dan slideshow tujuh ilustrasi
+tokoh memenuhi separuh kanan layar. Gambar berganti setiap enam detik; preferensi
+reduced motion mempertahankan gambar pertama. Caption di bawah gambar dihapus.
+Teks loading berganti setiap lima detik selama permintaan AI masih berjalan,
+tanpa mengklaim persentase atau tahap internal provider. Hitung mundur QR
+ditampilkan dengan hijau tebal. Tombol **Lihat galeri** tersedia di beranda dan hasil.
+
 Katalog di `src/data.js` memakai folder berikut di `public/assets`:
 
 - `backgrounds`: tiga referensi background untuk input AI.
@@ -171,3 +178,8 @@ akun mendukungnya, [app password memerlukan 2-Step Verification](https://support
 - `GET /api/download/:token`: token-based private result access used by the QR.
 
 The gallery response intentionally contains only image URLs. The current kiosk does not collect names or gender and creates no guest-book rows. Existing guest-book records remain available to the authenticated admin export. A QR/download token is valid for 60 seconds, while the PNG master, WebP thumbnail, and database record remain on the VPS for the seven-day retention window used by the gallery and cleanup job. Set `RESULT_RETENTION_MS=0` when the museum wants indefinite retention and will perform manual storage cleanup.
+
+Gallery supports real Gemini and OpenRouter results. On first startup after the
+gallery fix, a one-time database migration repairs older OpenRouter rows that
+were incorrectly excluded. Retention and subsequent visibility changes remain
+respected; local fallback images are excluded.

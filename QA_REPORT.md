@@ -2,6 +2,27 @@
 
 Tanggal pemeriksaan awal: 22 Oktober 2026.
 
+## Beranda slideshow, konfirmasi, loading, QR, dan galeri — 23 Oktober 2026
+
+- Beranda landscape terbagi dua sama lebar, gambar penuh tinggi layar di kanan,
+  berganti di antara tujuh ilustrasi setiap enam detik. Caption dihapus.
+- Foto tokoh di konfirmasi memakai posisi crop atas agar wajah terlihat; gambar
+  tidak menyusut dan nama panjang boleh membungkus tanpa overflow.
+- Enam variasi judul dan teks loading berganti setiap lima detik, tanpa persentase
+  atau klaim tahap internal provider. Hitung mundur QR hijau dan bold.
+- Tombol galeri diperjelas pada beranda/hasil. Backend kini memasukkan Gemini
+  dan OpenRouter; migrasi sekali memperbaiki penandaan hasil OpenRouter lama.
+
+Verifikasi: 32 tampilan pada 1920×1080, 1366×768, 1080×1920, dan 390×844 dengan
+kamera/API simulasi lulus, termasuk slideshow, enam teks loading, nama panjang,
+crop Sosrokartono, warna QR, galeri terisi/kosong/gagal/retry dari beranda dan
+hasil, serta reset pilihan manual. Tidak ada gambar rusak atau overflow
+horizontal; kiosk tetap muat tanpa scroll. Sebelas tes `npm test`,
+`npm run check`, syntax server, dan `git diff --check` lulus. Tes backend
+mencakup thumbnail kedua provider, hasil OpenRouter baru, pemulihan hasil lama,
+retensi, fallback tersembunyi, dan visibilitas setelah restart. Tidak ada
+generasi berbayar atau pengiriman email nyata.
+
 ## Preview tempat dan pilihan manual — 23 Oktober 2026
 
 Kartu tempat memakai WebP dari PNG sumber utuh di `scene-previews`, sehingga

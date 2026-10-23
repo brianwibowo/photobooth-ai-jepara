@@ -80,6 +80,15 @@ function createDatabase(dataDir) {
   try { db.exec('ALTER TABLE results ADD COLUMN download_expires_at TEXT') } catch (error) {
     if (!/duplicate column name/i.test(error.message)) throw error
   }
+  db.exec('CREATE TABLE IF NOT EXISTS schema_migrations (name TEXT PRIMARY KEY)')
+  db.transaction(() => {
+    const migration = 'openrouter-gallery-v1'
+    if (db.prepare('SELECT name FROM schema_migrations WHERE name = ?').get(migration)) return
+    // Earlier releases marked every OpenRouter result private by mistake.
+    // Repair those legacy rows once; later visibility changes stay respected.
+    db.prepare("UPDATE results SET is_public = 1 WHERE provider = 'openrouter' AND is_public = 0").run()
+    db.prepare('INSERT INTO schema_migrations (name) VALUES (?)').run(migration)
+  })()
   return db
 }
 
@@ -481,16 +490,16 @@ export function createApp(options = {}) {
     const limit = Math.min(Math.max(Number(req.query.limit) || 12, 1), 20)
     const current = now().toISOString()
     const query = resultRetentionMs > 0
-      ? "SELECT id, thumbnail_file FROM results WHERE is_public = 1 AND provider = 'gemini' AND ((expires_at IS NOT NULL AND expires_at > ?) OR (expires_at IS NULL AND datetime(created_at, '+7 days') > datetime(?))) ORDER BY id DESC LIMIT ?"
-      : "SELECT id, thumbnail_file FROM results WHERE is_public = 1 AND provider = 'gemini' ORDER BY id DESC LIMIT ?"
+      ? "SELECT id, thumbnail_file FROM results WHERE is_public = 1 AND provider IN ('gemini', 'openrouter') AND ((expires_at IS NOT NULL AND expires_at > ?) OR (expires_at IS NULL AND datetime(created_at, '+7 days') > datetime(?))) ORDER BY id DESC LIMIT ?"
+      : "SELECT id, thumbnail_file FROM results WHERE is_public = 1 AND provider IN ('gemini', 'openrouter') ORDER BY id DESC LIMIT ?"
     const rows = resultRetentionMs > 0 ? db.prepare(query).all(current, current, limit) : db.prepare(query).all(limit)
     res.json({ items: rows.map((row) => ({ thumbnailUrl: `/api/gallery/image/${encodeURIComponent(row.thumbnail_file)}` })) })
   })
   app.get('/api/gallery/image/:file', (req, res) => {
     const current = now().toISOString()
     const query = resultRetentionMs > 0
-      ? "SELECT thumbnail_file FROM results WHERE thumbnail_file = ? AND is_public = 1 AND provider = 'gemini' AND ((expires_at IS NOT NULL AND expires_at > ?) OR (expires_at IS NULL AND datetime(created_at, '+7 days') > datetime(?)))"
-      : "SELECT thumbnail_file FROM results WHERE thumbnail_file = ? AND is_public = 1 AND provider = 'gemini'"
+      ? "SELECT thumbnail_file FROM results WHERE thumbnail_file = ? AND is_public = 1 AND provider IN ('gemini', 'openrouter') AND ((expires_at IS NOT NULL AND expires_at > ?) OR (expires_at IS NULL AND datetime(created_at, '+7 days') > datetime(?)))"
+      : "SELECT thumbnail_file FROM results WHERE thumbnail_file = ? AND is_public = 1 AND provider IN ('gemini', 'openrouter')"
     const row = resultRetentionMs > 0 ? db.prepare(query).get(req.params.file, current, current) : db.prepare(query).get(req.params.file)
     if (!row || !/^[a-zA-Z0-9._-]+-thumb\.webp$/.test(row.thumbnail_file)) return res.status(404).send('Gambar tidak ditemukan.')
     res.type('image/webp').set('Cache-Control', 'public, max-age=604800, immutable').sendFile(path.join(generatedDir, row.thumbnail_file))
@@ -575,7 +584,7 @@ export function createApp(options = {}) {
       const expiresAt = resultRetentionMs > 0 ? new Date(createdAt.getTime() + resultRetentionMs).toISOString() : null
       const downloadExpiresAt = new Date(createdAt.getTime() + downloadTtlMs).toISOString()
       const resultId = db.transaction(() => {
-        const result = db.prepare('INSERT INTO results (token,image_file,thumbnail_file,scene_id,character_id,provider,is_public,created_at,expires_at,download_expires_at) VALUES (?,?,?,?,?,?,?,?,?,?)').run(token, imageFile, thumbFile, sceneId, characterId, provider, provider === 'gemini' ? 1 : 0, createdAt.toISOString(), expiresAt, downloadExpiresAt)
+        const result = db.prepare('INSERT INTO results (token,image_file,thumbnail_file,scene_id,character_id,provider,is_public,created_at,expires_at,download_expires_at) VALUES (?,?,?,?,?,?,?,?,?,?)').run(token, imageFile, thumbFile, sceneId, characterId, provider, ['gemini', 'openrouter'].includes(provider) ? 1 : 0, createdAt.toISOString(), expiresAt, downloadExpiresAt)
         const insertGuest = db.prepare('INSERT INTO guests (result_id,name,gender,created_at) VALUES (?,?,?,?)')
         guestList.forEach((guest) => insertGuest.run(result.lastInsertRowid, guest.name.trim().slice(0, 80), guest.gender, createdAt.toISOString()))
         return result.lastInsertRowid
