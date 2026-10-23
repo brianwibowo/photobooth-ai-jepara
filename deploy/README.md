@@ -1,5 +1,41 @@
 # Deploy ke VPS dengan Docker
 
+## Domain fotokartinirembang.com pada VPS yang sudah berjalan
+
+Setelah A record domain dan `www` mengarah ke `139.190.100.249`, jalankan dari
+folder proyek pada VPS:
+
+```bash
+git pull
+bash deploy/domain.sh
+```
+
+Skrip memakai Python 3 standar dan Docker Compose v2. Ia menemukan Caddy yang
+mempublikasikan host port 443, membaca bind mount Caddyfile, dan memvalidasi
+tambahan site dengan binary Caddy yang sudah terpasang. Konfigurasi API lama
+dipertahankan. Caddy utama memakai HTTPS otomatis dan `www` mengarah ke domain
+utama. Tidak perlu mengubah `DOMAIN` atau token DuckDNS pada stack lama.
+
+`compose.override.yaml` lokal menghubungkan app ke jaringan defaultnya dan
+jaringan gateway eksternal dengan alias `photobooth-kartini`. Override tersebut
+menetapkan `PUBLIC_BASE_URL=https://fotokartinirembang.com`, sehingga QR memakai
+domain baru tanpa mengedit key/SMTP dalam `.env`. Compose otomatis membaca file
+override pada pembaruan berikutnya; jangan menghapusnya. File itu diabaikan Git.
+
+Setup memakai image app yang sudah tersedia (`--no-build`), menunggu healthy,
+menulis Caddyfile di tempat agar bind mount tetap membaca inode yang sama, lalu
+melakukan reload. HTTPS domain utama dan `www` diverifikasi melalui health API.
+Backup disimpan dalam `backups/domain-*`. Bila aplikasi, reload, atau verifikasi
+HTTPS gagal, skrip mencoba memulihkan file lama dan container app, lalu melaporkan
+jika pemulihan perlu diperiksa. Override yang dibuat manual tidak ditimpa.
+
+Pengujian: sepuluh unit test Python mencakup penemuan gateway, DNS, penggabungan
+site, pemasangan, dan rollback. Merge override juga diperiksa memakai Docker
+Compose CLI. Container gateway/TLS sebenarnya harus diverifikasi pada VPS saat
+skrip dijalankan; daemon Docker lokal tidak berjalan.
+
+## Instalasi awal dengan DuckDNS
+
 Konfigurasi ini untuk satu VPS dengan RAM 2 GB, satu instance aplikasi, dan domain
 `photobooth-jepara.duckdns.org` yang diarahkan ke `139.190.100.249`. Port 80 dan
 443 pada VPS ini sudah dipakai service lain, sehingga stack ini memakai host port

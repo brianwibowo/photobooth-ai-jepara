@@ -12,3 +12,7 @@ data/uploads/*
 /backups/
 .DS_Store
 audit-results/
+
+# Local custom-domain configuration, generated only on the VPS.
+/compose.override.yaml
+__pycache__/

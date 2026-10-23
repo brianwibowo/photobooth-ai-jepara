@@ -2,6 +2,21 @@
 
 Tanggal pemeriksaan awal: 22 Oktober 2026.
 
+## Setup domain dengan perintah pendek — 23 Oktober 2026
+
+`bash deploy/domain.sh` memasang `fotokartinirembang.com` melalui gateway Caddy
+yang sudah memiliki host port 443. DNS harus mengarah ke VPS. Setup menemukan
+mount/jaringan secara otomatis, mempertahankan site lama, membuat override
+Compose persisten untuk jaringan dan URL QR, memvalidasi Caddy sebelum perubahan,
+menunggu app healthy, reload, serta memverifikasi HTTPS utama/www. Kegagalan
+memicu percobaan rollback. Backup lokal tidak masuk Git.
+
+Sepuluh unit test Python lulus, termasuk idempotensi dan kegagalan validasi,
+app, reload, serta HTTPS; dipanggil sebagai satu tes dalam suite Node.
+Total **29 tes Node lulus**. Docker Compose CLI memverifikasi hasil merge
+override dengan konfigurasi dummy tanpa kredensial. Caddy nyata dan penerbitan
+sertifikat belum dijalankan dari Mac; hasil VPS menunggu eksekusi pengguna.
+
 ## Perbaikan startup Docker — 23 Oktober 2026
 
 Commit audit sebelumnya menambah import `src/config.js` pada server, tetapi
