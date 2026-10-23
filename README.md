@@ -73,13 +73,23 @@ API mengirim angka tersebut sebagai batasan prompt tanpa membutuhkan data tamu. 
 tersedia sebelum generasi, termasuk opsi ambil ulang. Header terpisah dihapus;
 logo ditempatkan di konten utama. Layout mendukung kiosk landscape dan portrait.
 
-Katalog di `src/data.js` memakai tiga folder yang ada di `public/assets`:
+Katalog di `src/data.js` memakai folder berikut di `public/assets`:
 
-- `backgrounds`: tiga latar untuk thumbnail pilihan dan input background AI.
+- `backgrounds`: tiga referensi background untuk input AI.
+- `scene-previews`: tiga thumbnail utuh dari PNG sumber untuk kartu pemilihan
+  tempat; tidak memakai gambar reference yang memiliki bagian blur.
 - `logo`: logo Jawa Tengah, Rembang, museum, dan Museum di Hatiku.
 - `tokoh_pahlawan`: tujuh tokoh; `display.webp` untuk ilustrasi pengalaman dan
   `reference.webp` untuk kartu tokoh serta referensi identitas AI. PNG adegan dan
   folder `referensi` tetap menjadi pustaka sumber.
+
+Tempat dan tokoh tidak dipilih otomatis pada sesi baru. Tombol lanjut aktif
+setelah pengunjung memilih sendiri. Pilihan yang sudah dibuat tetap tersimpan
+ketika kembali ke langkah sebelumnya.
+
+Preview dapat dibangun ulang dengan `npm run assets:previews` dari PNG sumber
+yang disimpan di repository. File WebP hasilnya ikut di-commit agar build Docker
+tidak perlu membawa pustaka sumber yang besar.
 
 Semua tokoh tersedia pada ketiga latar. Mengganti latar mempertahankan tokoh yang
 sudah dipilih. Soesalit mengikuti referensi anak, termasuk pada prompt generasi.

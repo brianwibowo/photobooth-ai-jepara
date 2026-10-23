@@ -2,6 +2,23 @@
 
 Tanggal pemeriksaan awal: 22 Oktober 2026.
 
+## Preview tempat dan pilihan manual — 23 Oktober 2026
+
+Kartu tempat memakai WebP dari PNG sumber utuh di `scene-previews`, sehingga
+bagian blur pada referensi AI tidak muncul di pratinjau. Referensi generasi
+tetap terpisah. Tempat dan tokoh kosong pada setiap sesi baru; tombol lanjut
+nonaktif sampai pengunjung memilih. Kembali ke langkah sebelumnya tetap
+mempertahankan pilihan yang dibuat pengunjung.
+
+Verifikasi dengan kamera/provider simulasi:
+
+- 40 tampilan pada 1920×1080, 1440×900, 1366×768, 1080×1920, dan 390×844:
+  gambar termuat, tanpa overflow horizontal, kiosk muat tanpa scroll.
+- Pilihan awal kosong, status tombol lanjut, pilihan saat kembali, payload
+  ID yang dipilih, alur hasil/QR, retry, dan reset sesi lulus.
+- `npm run check`, sembilan tes `npm test`, dan `git diff --check` lulus.
+- Tidak menjalankan generasi AI berbayar atau mengirim email nyata.
+
 ## Email foto opsional dari VPS — 23 Oktober 2026
 
 Halaman hasil/QR menyediakan formulir satu alamat email secara opsional.

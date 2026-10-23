@@ -12,7 +12,8 @@
     "check": "npm run check:assets && npm run build",
     "check:assets": "node scripts/check-assets.mjs",
     "email:verify": "node server/verify-email.js",
-    "test": "node --test test/*.test.js"
+    "test": "node --test test/*.test.js",
+    "assets:previews": "node scripts/build-scene-previews.mjs"
   },
   "dependencies": {
     "better-sqlite3": "^11.10.0",

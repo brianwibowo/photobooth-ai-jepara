@@ -20,7 +20,7 @@ button, input { font: inherit; }
 button, a { -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
 button { cursor: pointer; border: 0; }
 button:focus-visible, a:focus-visible, input:focus-visible { outline: 3px solid var(--coral); outline-offset: 5px; }
-button:disabled { cursor: wait; opacity: .5; }
+button:disabled { cursor: not-allowed; opacity: .5; }
 .app-shell { min-height: 100vh; min-height: 100dvh; display: flex; flex-direction: column; }
 .screen-content { width: 100%; max-width: 1760px; margin: auto; padding: clamp(24px, 4vh, 56px) clamp(24px, 4vw, 72px); flex: 1; }
 .home, .flow, .generating, .result { min-height: 100vh; min-height: 100dvh; }

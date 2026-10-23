@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import QRCode from 'qrcode'
-import { characters, scenes, logos, getCharacter, getScene } from './data'
+import { characters, scenes, logos } from './data'
 import './styles.css'
 
 const STEPS = ['scene', 'character', 'camera', 'confirm']
@@ -11,7 +11,7 @@ const SESSION_IDLE_MS = 2 * 60 * 1000
 function App() {
   const [screen, setScreen] = useState('home')
   const [sceneId, setSceneId] = useState(null)
-  const [characterId, setCharacterId] = useState('kartini')
+  const [characterId, setCharacterId] = useState(null)
   const [people, setPeople] = useState(null)
   const [photo, setPhoto] = useState(null)
   const [photoFile, setPhotoFile] = useState(null)
@@ -36,8 +36,8 @@ function App() {
   const cameraRequestRef = useRef(0)
   const photoUrlRef = useRef(null)
 
-  const scene = useMemo(() => getScene(sceneId), [sceneId])
-  const character = useMemo(() => getCharacter(characterId), [characterId])
+  const scene = useMemo(() => scenes.find((item) => item.id === sceneId) || null, [sceneId])
+  const character = useMemo(() => characters.find((item) => item.id === characterId) || null, [characterId])
   const stepIndex = Math.max(0, STEPS.indexOf(screen))
 
   useEffect(() => () => { stopCamera(); generateControllerRef.current?.abort(); clearTimeout(generationTimerRef.current); clearTimeout(idleTimerRef.current); clearTimeout(galleryTimerRef.current); clearInterval(resultTimerRef.current); if (photoUrlRef.current) URL.revokeObjectURL(photoUrlRef.current) }, [])
@@ -91,11 +91,12 @@ function App() {
     photoUrlRef.current = nextUrl || null
     setPhoto(nextUrl)
   }
-  function begin() { stopCamera(); setResult(null); replacePhoto(null); setPhotoFile(null); setSceneId('gerbang'); setPeople(null); setCharacterId('kartini'); go('scene') }
+  function begin() { stopCamera(); setResult(null); replacePhoto(null); setPhotoFile(null); setSceneId(null); setPeople(null); setCharacterId(null); go('scene') }
   function chooseScene(id) {
+    const selected = scenes.find((item) => item.id === id)
+    if (!selected) return
     setSceneId(id)
-    const selected = getScene(id)
-    if (!selected.characterIds.includes(characterId)) setCharacterId(selected.characterIds[0])
+    if (!selected.characterIds.includes(characterId)) setCharacterId(null)
   }
   async function startCamera() {
     setError('')
@@ -141,7 +142,7 @@ function App() {
   }
   async function generate() {
     if (isBusy) return
-    if (!photoFile || !scene) return setError('Foto dan adegan wajib dipilih.')
+    if (!photoFile || !scene || !character) return setError('Foto, tempat, dan tokoh wajib dipilih.')
     setError(''); setGenerationNote('Mengunci komposisi bersama tokoh pilihan…'); setScreen('generating'); setIsBusy(true)
     const body = new FormData(); body.append('photo', photoFile); body.append('sceneId', scene.id); body.append('characterId', character.id)
     if (people !== null) body.append('people', String(people))
@@ -170,12 +171,12 @@ function App() {
       setGalleryError(err.message || 'Galeri tidak dapat dimuat. Coba lagi.')
     } finally { setGalleryLoading(false) }
   }
-  function newSession() { stopCamera(); generateControllerRef.current?.abort(); setIsGalleryOpen(false); setResult(null); setQrData(''); setError(''); replacePhoto(null); setPhotoFile(null); setSceneId(null); setPeople(null); setCharacterId('kartini'); go('home') }
+  function newSession() { stopCamera(); generateControllerRef.current?.abort(); setIsGalleryOpen(false); setResult(null); setQrData(''); setError(''); replacePhoto(null); setPhotoFile(null); setSceneId(null); setPeople(null); setCharacterId(null); go('home') }
 
   return <div className="app-shell">
     {screen === 'home' && <Home onStart={begin} onGallery={() => setIsGalleryOpen(true)} />}
-    {screen === 'scene' && <ScenePicker scene={scene} onSelect={chooseScene} onNext={() => go('character')} onBack={newSession} />}
-    {screen === 'character' && <CharacterPicker scene={scene} character={character} onSelect={setCharacterId} onNext={() => go('camera')} onBack={() => go('scene')} />}
+    {screen === 'scene' && <ScenePicker scene={scene} onSelect={chooseScene} onNext={() => { if (scene) go('character') }} onBack={newSession} />}
+    {screen === 'character' && <CharacterPicker scene={scene} character={character} onSelect={setCharacterId} onNext={() => { if (scene && character) go('camera') }} onBack={() => go('scene')} />}
     {screen === 'camera' && <CameraScreen people={people} onPeople={setPeople} videoRef={videoRef} cameraReady={cameraReady} onStart={startCamera} onStop={stopCamera} onCapture={capturePhoto} onBack={() => { stopCamera(); go('character') }} error={error} />}
     {screen === 'confirm' && <ConfirmScreen people={people} photo={photo} scene={scene} character={character} onBack={() => go('camera')} onGenerate={generate} error={error} />}
     {screen === 'generating' && <GeneratingScreen photo={photo} note={generationNote} />}
@@ -207,17 +208,17 @@ function Home({ onStart, onGallery }) {
 function ScenePicker({ scene, onSelect, onNext, onBack }) {
   return <main className="flow screen-content picker-screen scene-screen">
     <FlowHeading kicker="01 / PILIH TEMPAT" title={<>Di mana kisahmu <em>dimulai?</em></>} copy="Pilih suasana untuk foto kenanganmu." />
-    <div className="scene-grid">{scenes.map((item) => <button aria-pressed={scene.id === item.id} className={`scene-card ${scene.id === item.id ? 'selected' : ''}`} key={item.id} onClick={() => onSelect(item.id)}><img src={item.image} alt="" /><span className="scene-overlay" /><span className="scene-info"><strong>{item.name}</strong><span>{item.description}</span></span><span className="selection-check" aria-hidden="true">{scene.id === item.id ? '✓' : '+'}</span></button>)}</div>
-    <div className="flow-actions"><BackButton onClick={onBack} /><p className="selection-summary">{scene.name}</p><button className="button primary" onClick={onNext}>Pilih tokoh <span>→</span></button></div>
+    <div className="scene-grid">{scenes.map((item) => <button aria-pressed={scene?.id === item.id} className={`scene-card ${scene?.id === item.id ? 'selected' : ''}`} key={item.id} onClick={() => onSelect(item.id)}><img src={item.image} alt="" /><span className="scene-overlay" /><span className="scene-info"><strong>{item.name}</strong><span>{item.description}</span></span><span className="selection-check" aria-hidden="true">{scene?.id === item.id ? '✓' : '+'}</span></button>)}</div>
+    <div className="flow-actions"><BackButton onClick={onBack} /><p className="selection-summary">{scene?.name || 'Pilih satu tempat'}</p><button className="button primary" onClick={onNext} disabled={!scene}>Pilih tokoh <span>→</span></button></div>
   </main>
 }
 
 function CharacterPicker({ scene, character, onSelect, onNext, onBack }) {
-  const available = characters.filter((item) => scene.characterIds.includes(item.id))
+  const available = characters.filter((item) => scene?.characterIds.includes(item.id))
   return <main className="flow screen-content picker-screen character-screen">
-    <FlowHeading kicker="02 / PILIH TOKOH" title={<>Siapa <em>teman fotomu?</em></>} copy={`Pilih tokoh yang akan menemanimu di ${scene.name}.`} />
-    <div className="character-grid">{available.map((item) => <button aria-pressed={character.id === item.id} className={`character-card ${character.id === item.id ? 'selected' : ''}`} onClick={() => onSelect(item.id)} key={item.id}><img src={item.reference} alt="" /><span className="character-info"><strong>{item.name}</strong><small>{item.role}</small></span><span className="selection-check" aria-hidden="true">{character.id === item.id ? '✓' : '+'}</span></button>)}</div>
-    <div className="flow-actions"><BackButton onClick={onBack} /><p className="selection-summary">{character.name}</p><button className="button primary" onClick={onNext}>Lanjut ke kamera <span>→</span></button></div>
+    <FlowHeading kicker="02 / PILIH TOKOH" title={<>Siapa <em>teman fotomu?</em></>} copy={`Pilih tokoh yang akan menemanimu di ${scene?.name || 'tempat pilihanmu'}.`} />
+    <div className="character-grid">{available.map((item) => <button aria-pressed={character?.id === item.id} className={`character-card ${character?.id === item.id ? 'selected' : ''}`} onClick={() => onSelect(item.id)} key={item.id}><img src={item.reference} alt="" /><span className="character-info"><strong>{item.name}</strong><small>{item.role}</small></span><span className="selection-check" aria-hidden="true">{character?.id === item.id ? '✓' : '+'}</span></button>)}</div>
+    <div className="flow-actions"><BackButton onClick={onBack} /><p className="selection-summary">{character?.name || 'Pilih satu tokoh'}</p><button className="button primary" onClick={onNext} disabled={!character}>Lanjut ke kamera <span>→</span></button></div>
   </main>
 }
 
