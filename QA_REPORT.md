@@ -2,6 +2,40 @@
 
 Tanggal pemeriksaan awal: 22 Oktober 2026.
 
+## Referensi tanpa orang, foto grup pada loading, dan akhir sesi QR — 23 Oktober 2026
+
+Latar generasi membatik dan ruang gagasan kini memakai plate tanpa orang hasil
+edit built-in imagegen. Aset asli dan ilustrasi kartu tetap menjadi pustaka;
+asal aset dan prompt tersimpan di `docs/reference-backgrounds.md`. Prompt bersama
+untuk Gemini/OpenRouter membatasi semua orang pada pengunjung di foto sumber
+ditambah tepat satu tokoh yang dipilih. Jumlah kosong tidak diubah menjadi satu.
+Referensi wajib yang hilang ditolak tanpa mengganti dengan gambar promosi.
+
+Loading mempertahankan lingkaran, tetapi seluruh foto ditampilkan dengan ukuran
+yang mengikuti rasio asli sehingga orang di ujung foto grup tidak terpotong.
+Saat QR habis, pop-up memberikan sepuluh detik untuk lanjut atau keluar.
+Lanjutkan mengaktifkan token lagi selama lima belas detik lewat server;
+permintaan berulang tidak menambah waktu berlipat. Retensi tidak diperpanjang.
+
+Verifikasi:
+
+- Lima belas tes otomatis lulus, termasuk urutan tiga input dan prompt semua
+  latar pada Gemini, OpenRouter images, serta OpenRouter chat; referensi wajib
+  hilang; masa aktif/grace QR, klik ganda, sesi lama, retensi, dan email setelah
+  perpanjangan. Provider generasi dan SMTP memakai simulasi.
+- Enam belas tampilan pada 1920×1080, 1366×768, 1080×1920, dan 390×844 lulus:
+  foto empat pengunjung utuh pada lingkaran, countdown tujuh detik, pop-up
+  sepuluh detik, perpanjangan lima belas detik dengan unduh HTTP kembali 200,
+  auto-reset, keluar langsung, fokus keyboard, dan reset pilihan manual.
+- Uji tambahan 1366×768 lulus untuk koneksi perpanjangan gagal lalu retry,
+  pembatalan request saat keluar, dan pemulihan scroll setelah pop-up ditutup.
+- `npm run check`, syntax server, dan `git diff --check` lulus.
+
+Latar kosong telah diperiksa visual. Tidak menjalankan generasi pengunjung
+berbayar atau mengirim email nyata. Tidak ada detektor wajah atau validator
+jumlah hasil otomatis; konsistensi wajah/jumlah tetap perlu diuji lewat sesi
+generasi baru di VPS setelah deploy.
+
 ## Hitung mundur kamera tujuh detik — 23 Oktober 2026
 
 Browser dengan kamera simulasi memverifikasi angka awal 7, masih berada di

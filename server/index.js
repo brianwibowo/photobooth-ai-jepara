@@ -11,6 +11,7 @@ import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { characters, scenes, getCharacter, getScene } from '../src/data.js'
 import { createPhotoEmailService } from './photo-email.js'
+import { buildGenerationPrompt } from './generation-prompt.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const root = path.resolve(__dirname, '..')
@@ -21,6 +22,8 @@ const DEFAULT_MODEL = 'gemini-nano-banana-2.1'
 // or displayed QR code cannot be reused indefinitely.
 const DEFAULT_RESULT_RETENTION_MS = 7 * 24 * 60 * 60 * 1000
 const DEFAULT_DOWNLOAD_TTL_MS = 60 * 1000
+const RESULT_CONTINUE_GRACE_MS = 10 * 1000
+const RESULT_EXTENSION_MS = 15 * 1000
 const MAX_PEOPLE = 3
 const DEFAULT_MAX_UPLOAD_MB = 8
 const DEFAULT_MAX_PIXELS = 24_000_000
@@ -28,7 +31,6 @@ const DEFAULT_MAX_PIXELS = 24_000_000
 const safeJson = (value, fallback) => {
   try { return JSON.parse(value) } catch { return fallback }
 }
-const now = () => new Date()
 const uniqueToken = () => crypto.randomBytes(32).toString('base64url')
 const csvEscape = (value) => `"${String(value ?? '').replaceAll('"', '""')}"`
 function formatRetryDelay(value) {
@@ -156,13 +158,14 @@ async function getOpenRouterImage(payload, fetchImpl) {
 }
 
 export function createApp(options = {}) {
+  const now = options.now || (() => new Date())
   const dataDir = options.dataDir || process.env.DATA_DIR || path.join(root, 'data')
   const generatedDir = path.join(dataDir, 'generated')
   const uploadDir = path.join(dataDir, 'uploads')
   fsSync.mkdirSync(generatedDir, { recursive: true })
   fsSync.mkdirSync(uploadDir, { recursive: true })
   const db = options.db || createDatabase(dataDir)
-  const photoEmail = createPhotoEmailService({ db, generatedDir, ...options.emailOptions })
+  const photoEmail = createPhotoEmailService({ db, generatedDir, clock: () => now().getTime(), ...options.emailOptions })
   const fetchImpl = options.fetchImpl || globalThis.fetch
   const publicBaseUrl = (options.publicBaseUrl || process.env.PUBLIC_BASE_URL || `http://localhost:${process.env.PORT || 8787}`).replace(/\/$/, '')
   const maxUploadMb = Number(options.maxUploadMb || process.env.MAX_UPLOAD_MB || DEFAULT_MAX_UPLOAD_MB)
@@ -185,7 +188,7 @@ export function createApp(options = {}) {
     const rows = db.prepare("SELECT id, image_file, thumbnail_file, created_at, expires_at FROM results WHERE NOT EXISTS (SELECT 1 FROM photo_emails e WHERE e.result_id = results.id AND e.status = 'sending')").all()
       .filter((row) => {
         const retentionExpiry = row.expires_at ? new Date(row.expires_at) : new Date(new Date(row.created_at).getTime() + resultRetentionMs)
-        return Number.isFinite(retentionExpiry.getTime()) && retentionExpiry.getTime() <= Date.now()
+        return Number.isFinite(retentionExpiry.getTime()) && retentionExpiry.getTime() <= now().getTime()
       })
     if (!rows.length) return 0
     const remove = db.transaction((expired) => {
@@ -259,6 +262,20 @@ export function createApp(options = {}) {
     return { data: optimized.toString('base64'), mimeType: 'image/jpeg' }
   }
 
+  async function prepareGenerationReferences({ photoBuffer, character, scene }) {
+    // Never fall back to promotional previews: those may contain sample people.
+    const required = [character.reference, scene.background]
+    for (const asset of required) {
+      if (!asset?.startsWith('/assets/') || !fsSync.existsSync(path.join(root, 'public', asset))) {
+        throw Object.assign(new Error('Referensi tokoh atau latar kosong belum tersedia.'), { code: 'REFERENCE_MISSING' })
+      }
+    }
+    const visitor = await sharp(photoBuffer).rotate().resize({ width: 1536, withoutEnlargement: true }).jpeg({ quality: 88 }).toBuffer()
+    const charRef = await imageData(path.join('public', character.reference))
+    const sceneRef = await imageData(path.join('public', scene.background))
+    return { visitor, charRef, sceneRef }
+  }
+
   async function callGeminiModel({ model, apiKey, inputParts }) {
     const response = await fetchImpl(`https://generativelanguage.googleapis.com/v1/models/${encodeURIComponent(model)}:generateContent`, {
       method: 'POST', headers: { 'content-type': 'application/json', 'x-goog-api-key': apiKey },
@@ -284,65 +301,29 @@ export function createApp(options = {}) {
     const configuredModel = process.env.GEMINI_MODEL || DEFAULT_MODEL
     const scene = sceneMap[sceneId] || getScene(sceneId)
     const character = characterMap[characterId] || getCharacter(characterId)
-    const visitor = await sharp(photoBuffer).rotate().resize({ width: 1536, withoutEnlargement: true }).jpeg({ quality: 88 }).toBuffer()
-
-    const prompt = [
-      `Create one authentic, photorealistic commemorative museum photograph taken inside Museum R.A. Kartini Rembang.`,
-      `${people ? `There must be exactly ${people} visitor(s) from Reference 1` : 'Include every visitor visible in Reference 1, keeping exactly the same number of visitors'} plus exactly one historical figure: ${character.name}. Preserve every visitor's real face, facial proportions, appearance, skin tone, age, and left-to-right order. Do not invent visitor names or demographic information.`,
-      `Reference order is strict: Reference 1 is the visitor photo and the only source for visitor identities; Reference 2 is the selected historical figure; Reference 3 is the selected museum background. Ignore incidental people visible in References 2 and 3.`,
-      `The historical figure ${character.name} must keep the same face, hairstyle, age, and authentic Javanese period clothing as Reference 2. ${character.prompt || ''}`,
-      `Place everyone naturally in ${scene.name}, ${scene.location}, preserving the architecture and lighting from Reference 3. ${scene.prompt || ''}`,
-      'Documentary museum photography, eye-level 50mm perspective, natural Indonesian skin texture, believable anatomy and hands, warm historical light, 3:2 landscape composition.',
-      'Do not add, remove, duplicate, merge, or swap people. No face morphing, gender swap, extra people, modern objects, text, borders, logos, watermarks, or distorted faces/hands.',
-    ].join(' ')
-    const inputParts = [{ text: prompt }, { text: 'REFERENCE 1 — VISITOR PHOTO. Preserve all visitor identities exactly and keep their left-to-right order.' }, { inline_data: { mime_type: 'image/jpeg', data: visitor.toString('base64') } }]
-    const characterPath = (character?.reference || character?.image)?.replace(/^\//, '')
-    const scenePath = (scene?.background || scene?.image)?.replace(/^\//, '')
-    if (characterPath && fsSync.existsSync(path.join(root, 'public', characterPath))) {
-      const ref = await imageData(path.join('public', characterPath))
-      inputParts.push({ text: 'REFERENCE 2 — SELECTED HISTORICAL FIGURE. Use only this person for the museum figure.' }, { inline_data: { mime_type: ref.mimeType, data: ref.data } })
-    }
-    if (scenePath && fsSync.existsSync(path.join(root, 'public', scenePath))) {
-      const bg = await imageData(path.join('public', scenePath))
-      inputParts.push({ text: 'REFERENCE 3 — SELECTED MUSEUM BACKGROUND. Use its architecture and lighting; ignore people in it.' }, { inline_data: { mime_type: bg.mimeType, data: bg.data } })
-    }
+    const { visitor, charRef, sceneRef } = await prepareGenerationReferences({ photoBuffer, character, scene })
+    const prompt = buildGenerationPrompt({ scene, character, people })
+    const inputParts = [
+      { text: prompt },
+      { text: 'REFERENCE 1 — VISITOR PHOTO. This is the only source of visitor identities and count. Preserve every visitor exactly once.' },
+      { inline_data: { mime_type: 'image/jpeg', data: visitor.toString('base64') } },
+      { text: `REFERENCE 2 — ONLY THE SELECTED FIGURE: ${character.name}. Add this person exactly once.` },
+      { inline_data: { mime_type: charRef.mimeType, data: charRef.data } },
+      { text: 'REFERENCE 3 — EMPTY MUSEUM ENVIRONMENT. Architecture and lighting only; no people to copy.' },
+      { inline_data: { mime_type: sceneRef.mimeType, data: sceneRef.data } },
+    ]
     return await callGeminiModel({ model: configuredModel, apiKey, inputParts })
   }
 
-  async function generateWithOpenRouter({ photoBuffer, sceneId, characterId, people, guests }) {
+  async function generateWithOpenRouter({ photoBuffer, sceneId, characterId, people }) {
     const apiKey = process.env.OPENROUTER_API_KEY
     if (!apiKey) throw Object.assign(new Error('missing openrouter api key'), { code: 'MISSING_OPENROUTER_KEY' })
     const configuredModel = process.env.OPENROUTER_MODEL || process.env.AI_INFOGRAPHIC_MODEL || 'openai/gpt-image-2.5-flare'
 
     const scene = sceneMap[sceneId] || getScene(sceneId)
     const character = characterMap[characterId] || getCharacter(characterId)
-    const visitor = await sharp(photoBuffer).rotate().resize({ width: 1536, withoutEnlargement: true }).jpeg({ quality: 88 }).toBuffer()
-
-    const characterPath = (character?.reference || character?.image)?.replace(/^\//, '')
-    const scenePath = (scene?.background || scene?.image)?.replace(/^\//, '')
-    let charRef = null
-    let sceneRef = null
-    if (characterPath && fsSync.existsSync(path.join(root, 'public', characterPath))) {
-      charRef = await imageData(path.join('public', characterPath))
-    }
-    if (scenePath && fsSync.existsSync(path.join(root, 'public', scenePath))) {
-      sceneRef = await imageData(path.join('public', scenePath))
-    }
-
-    const guestListStr = Array.isArray(guests) && guests.length > 0
-      ? guests.map((g, i) => `Visitor ${i + 1}: ${g.gender === 'Laki-laki' ? 'Male (man/boy)' : 'Female (woman/girl)'} named "${g.name}"`).join('; ')
-      : 'Every visitor visible in Reference 1; the visitor photo is the sole source of their number and appearance'
-
-    const prompt = [
-      `Create one authentic, photorealistic commemorative museum photograph for Museum R.A. Kartini Rembang.`,
-      `${people ? `There must be exactly ${people} visitor(s) from Reference 1` : 'Include every visitor visible in Reference 1, keeping exactly the same number of visitors'} plus exactly one historical figure: ${character.name}. Do not add, remove, duplicate, or merge people. Do not invent visitor names or demographic information.`,
-      `Visitors in the source photo: ${guestListStr}. Preserve every visitor's real face, facial proportions, eye shape, nose, mouth, hair, skin tone, age, body proportions, gender, and recognizable identity. Keep the same left-to-right face order as the source photo. The result must still look like the same people photographed in a new place.`,
-      `REFERENCE ORDER IS STRICT: Reference 1 is the visitor photo and is the only source for visitor identities. Reference 2 is the selected historical figure and is the only source for that figure's face and clothing. Reference 3 is the selected museum background and is the only source for architecture and location. Ignore and never copy any incidental people visible in References 2 or 3.`,
-      `The selected figure ${character.name} must remain visually consistent with Reference 2: same face, age, hairstyle, period-appropriate Javanese clothing, and calm natural expression. ${character.prompt || ''}`,
-      `Place the visitors and ${character.name} naturally together in ${scene.name}, ${scene.location}. Preserve the recognizable museum architecture, camera perspective, and lighting from Reference 3. ${scene.prompt || ''}`,
-      `Use a realistic documentary photograph, eye-level camera, 50mm perspective, natural Indonesian skin texture, correct anatomy, correct hands, believable contact shadows, matching light direction, and a 3:2 landscape composition.`,
-      `No face replacement, face morphing, gender swap, beautification, plastic skin, extra limbs, duplicated faces, cutout edges, collage effect, text, captions, borders, logos, watermarks, or modern objects. Do not render the visitor names anywhere in the image.`,
-    ].join(' ')
+    const { visitor, charRef, sceneRef } = await prepareGenerationReferences({ photoBuffer, character, scene })
+    const prompt = buildGenerationPrompt({ scene, character, people })
 
     const isImagesEndpoint = configuredModel.includes('gpt-image') ||
       configuredModel.includes('flare') ||
@@ -591,12 +572,31 @@ export function createApp(options = {}) {
       })()
       const downloadUrl = `${publicBaseUrl}/api/download/${token}`
       const downloadSeconds = Math.max(1, Math.ceil(downloadTtlMs / 1000))
-      return res.json({ id: resultId, imageUrl: `/api/download/${token}`, thumbnailUrl: `/api/gallery/image/${encodeURIComponent(thumbFile)}`, qrUrl: downloadUrl, provider, expiresIn: `${downloadSeconds} detik`, downloadExpiresAt, retentionExpiresAt: expiresAt, email: { available: photoEmail.available, endpoint: `/api/results/${token}/email` } })
+      return res.json({ id: resultId, imageUrl: `/api/download/${token}`, thumbnailUrl: `/api/gallery/image/${encodeURIComponent(thumbFile)}`, qrUrl: downloadUrl, provider, expiresIn: `${downloadSeconds} detik`, downloadExpiresAt, retentionExpiresAt: expiresAt, session: { extendEndpoint: `/api/results/${token}/extend`, graceSeconds: RESULT_CONTINUE_GRACE_MS / 1000, extensionSeconds: RESULT_EXTENSION_MS / 1000 }, email: { available: photoEmail.available, endpoint: `/api/results/${token}/email` } })
     } catch (error) {
       await Promise.all(writtenFiles.map(async (file) => { try { await fs.unlink(path.join(generatedDir, file)) } catch { /* best effort */ } }))
       console.error('Generation persistence failed', error?.code || 'UNKNOWN')
       return res.status(500).json({ error: 'Foto belum dapat disimpan. Silakan coba lagi.', code: 'RESULT_SAVE_FAILED', retryable: true })
     } finally { releaseSlot() }
+  })
+
+  const extendResult = db.transaction((token) => {
+    const row = db.prepare('SELECT image_file, created_at, expires_at, download_expires_at FROM results WHERE token = ?').get(token)
+    if (!row) return { code: 404, error: 'Foto tidak ditemukan.' }
+    const current = now().getTime()
+    const retention = row.expires_at ? Date.parse(row.expires_at) : Infinity
+    const expiry = row.download_expires_at ? Date.parse(row.download_expires_at) : row.expires_at ? Date.parse(row.expires_at) : Date.parse(row.created_at) + DEFAULT_DOWNLOAD_TTL_MS
+    if (!Number.isFinite(expiry) || (row.expires_at && !Number.isFinite(retention)) || retention <= current || current >= expiry + RESULT_CONTINUE_GRACE_MS) return { code: 410, error: 'Sesi foto sudah berakhir. Silakan mulai sesi baru.' }
+    if (!/^[a-zA-Z0-9._-]+\.(?:png|webp)$/.test(row.image_file) || !fsSync.existsSync(path.join(generatedDir, row.image_file))) return { code: 404, error: 'Foto tidak ditemukan.' }
+    // Active/repeated requests return the current deadline without accumulating time.
+    const nextExpiry = expiry > current ? expiry : Math.min(current + RESULT_EXTENSION_MS, retention)
+    if (nextExpiry !== expiry) db.prepare('UPDATE results SET download_expires_at = ? WHERE token = ?').run(new Date(nextExpiry).toISOString(), token)
+    return { code: 200, downloadExpiresAt: new Date(nextExpiry).toISOString() }
+  })
+  app.post('/api/results/:token/extend', (req, res) => {
+    res.set('Cache-Control', 'private, no-store')
+    const { code, ...payload } = extendResult(req.params.token)
+    return res.status(code).json(payload)
   })
 
   app.post('/api/results/:token/email', (req, res) => {

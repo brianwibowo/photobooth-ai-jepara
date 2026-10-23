@@ -84,7 +84,8 @@ ditampilkan dengan hijau tebal. Tombol **Lihat galeri** tersedia di beranda dan 
 
 Katalog di `src/data.js` memakai folder berikut di `public/assets`:
 
-- `backgrounds`: tiga referensi background untuk input AI.
+- `backgrounds`: referensi latar kosong untuk input AI; versi membatik dan ruang
+  gagasan menghapus orang contoh agar tidak ikut terbawa ke hasil. File lama disimpan.
 - `scene-previews`: tiga thumbnail utuh dari PNG sumber untuk kartu pemilihan
   tempat; tidak memakai gambar reference yang memiliki bagian blur.
 - `logo`: logo Jawa Tengah, Rembang, museum, dan Museum di Hatiku.
@@ -103,6 +104,21 @@ tidak perlu membawa pustaka sumber yang besar.
 Semua tokoh tersedia pada ketiga latar. Mengganti latar mempertahankan tokoh yang
 sudah dipilih. Soesalit mengikuti referensi anak, termasuk pada prompt generasi.
 Jalankan `npm run check` untuk mengecek keberadaan aset, relasi katalog, dan build.
+
+Referensi generasi selalu berurutan: foto pengunjung, portrait satu tokoh
+pilihan, lalu latar kosong. Model diminta mempertahankan semua pengunjung dari
+foto, ditambah tepat satu tokoh; nama museum tidak berarti menambah Kartini.
+Saat jumlah tidak diisi, tidak ada default satu orang. Referensi wajib yang
+hilang menghasilkan error, bukan fallback ke ilustrasi berisi orang contoh.
+Prompt aset, sumber, dan batas verifikasi ada di [docs/reference-backgrounds.md](docs/reference-backgrounds.md).
+
+Pada loading, bingkai tetap bulat tetapi seluruh foto dimuat tanpa crop,
+termasuk orang di ujung foto grup. Ini hanya pratinjau; input AI adalah foto utuh.
+
+Setelah QR habis, pop-up memberikan 10 detik untuk memilih **Lanjutkan (15 detik)**
+atau **Keluar**. Tanpa tindakan, kembali ke beranda. Lanjutkan mengaktifkan
+tautan yang sama selama 15 detik lewat server; klik ganda tidak menumpuk waktu.
+Sesi yang lewat jendela 10 detik atau melewati retensi tidak dapat diperpanjang.
 
 ## Email foto dari VPS
 
@@ -177,6 +193,8 @@ akun mendukungnya, [app password memerlukan 2-Step Verification](https://support
 - `POST /api/generate`: internal multipart camera capture with `photo`, `sceneId`, and `characterId`; optional `people` (1–3) is accepted independently; legacy `guests` data is validated when supplied; the kiosk does not expose a file-upload control.
 - `POST /api/results/:token/email`: token sesi aktif + JSON `{ "email": "..." }`; membuat job pengiriman lampiran.
 - `GET /api/results/:token/email`: status job tanpa menampilkan alamat penerima.
+- `POST /api/results/:token/extend`: memperpanjang QR 15 detik dalam grace 10 detik;
+  respons berisi `downloadExpiresAt` yang baru, tanpa mengubah retensi foto.
 - `GET /api/download/:token`: token-based private result access used by the QR.
 
 The gallery response intentionally contains only image URLs. The current kiosk does not collect names or gender and creates no guest-book rows. Existing guest-book records remain available to the authenticated admin export. A QR/download token is valid for 60 seconds, while the PNG master, WebP thumbnail, and database record remain on the VPS for the seven-day retention window used by the gallery and cleanup job. Set `RESULT_RETENTION_MS=0` when the museum wants indefinite retention and will perform manual storage cleanup.

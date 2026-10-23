@@ -26,7 +26,11 @@ function App() {
   const [qrData, setQrData] = useState('')
   const [cameraReady, setCameraReady] = useState(false)
   const [resultRemaining, setResultRemaining] = useState(60)
+  const [resultResetRemaining, setResultResetRemaining] = useState(null)
+  const [resultExtending, setResultExtending] = useState(false)
+  const [resultSessionError, setResultSessionError] = useState('')
   const generateControllerRef = useRef(null)
+  const resultExtensionRef = useRef(null)
   const idleTimerRef = useRef(null)
   const resultTimerRef = useRef(null)
   const galleryTimerRef = useRef(null)
@@ -39,7 +43,7 @@ function App() {
   const character = useMemo(() => characters.find((item) => item.id === characterId) || null, [characterId])
   const stepIndex = Math.max(0, STEPS.indexOf(screen))
 
-  useEffect(() => () => { stopCamera(); generateControllerRef.current?.abort(); clearTimeout(idleTimerRef.current); clearTimeout(galleryTimerRef.current); clearInterval(resultTimerRef.current); if (photoUrlRef.current) URL.revokeObjectURL(photoUrlRef.current) }, [])
+  useEffect(() => () => { stopCamera(); generateControllerRef.current?.abort(); resultExtensionRef.current?.abort(); clearTimeout(idleTimerRef.current); clearTimeout(galleryTimerRef.current); clearInterval(resultTimerRef.current); if (photoUrlRef.current) URL.revokeObjectURL(photoUrlRef.current) }, [])
   useEffect(() => { window.scrollTo(0, 0) }, [screen])
   useEffect(() => { if (isGalleryOpen) loadGallery() }, [isGalleryOpen])
   useEffect(() => {
@@ -50,7 +54,7 @@ function App() {
   }, [isGalleryOpen])
   useEffect(() => {
     if (result?.qrUrl) QRCode.toDataURL(result.qrUrl, { width: 280, margin: 1, color: { dark: '#173e40', light: '#ffffff' } }).then(setQrData)
-  }, [result])
+  }, [result?.qrUrl])
   useEffect(() => {
     clearTimeout(idleTimerRef.current)
     if (screen === 'home' || screen === 'result' || screen === 'generating') return undefined
@@ -69,18 +73,20 @@ function App() {
   useEffect(() => {
     clearInterval(resultTimerRef.current)
     if (screen !== 'result' || !result) return undefined
-    const expiry = Date.parse(result.downloadExpiresAt || '')
-    let remaining = Number.isFinite(expiry) ? Math.max(0, Math.ceil((expiry - Date.now()) / 1000)) : 60
-    setResultRemaining(remaining)
-    if (remaining <= 0) { newSession(); return undefined }
-    resultTimerRef.current = window.setInterval(() => {
-      remaining -= 1
-      setResultRemaining(Math.max(remaining, 0))
-      if (remaining <= 0) {
-        clearInterval(resultTimerRef.current)
-        newSession()
-      }
-    }, 1000)
+    const parsed = Date.parse(result.downloadExpiresAt || '')
+    const expiry = Number.isFinite(parsed) ? parsed : Date.now() + 60000
+    const graceMs = (result.session?.graceSeconds ?? 10) * 1000
+    const update = () => {
+      const current = Date.now()
+      setResultRemaining(Math.max(0, Math.ceil((expiry - current) / 1000)))
+      if (current < expiry) { setResultResetRemaining(null); return }
+      setIsGalleryOpen(false)
+      const resetRemaining = Math.max(0, Math.ceil((expiry + graceMs - current) / 1000))
+      setResultResetRemaining(resetRemaining)
+      if (resetRemaining <= 0) newSession()
+    }
+    update()
+    resultTimerRef.current = window.setInterval(update, 250)
     return () => clearInterval(resultTimerRef.current)
   }, [screen, result])
 
@@ -169,7 +175,28 @@ function App() {
       setGalleryError(err.message || 'Galeri tidak dapat dimuat. Coba lagi.')
     } finally { setGalleryLoading(false) }
   }
-  function newSession() { stopCamera(); generateControllerRef.current?.abort(); setIsGalleryOpen(false); setResult(null); setQrData(''); setError(''); replacePhoto(null); setPhotoFile(null); setSceneId(null); setPeople(null); setCharacterId(null); go('home') }
+  async function extendResultSession() {
+    if (resultExtensionRef.current || !result?.session?.extendEndpoint) return
+    const controller = new AbortController()
+    resultExtensionRef.current = controller
+    setResultExtending(true); setResultSessionError('')
+    const timeout = window.setTimeout(() => controller.abort(), 6000)
+    try {
+      const response = await fetch(result.session.extendEndpoint, { method: 'POST', signal: controller.signal })
+      const payload = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(payload.error || 'Waktu belum berhasil ditambah. Coba lagi.')
+      if (!Number.isFinite(Date.parse(payload.downloadExpiresAt)) || Date.parse(payload.downloadExpiresAt) <= Date.now()) throw new Error('Waktu QR belum berhasil diperbarui. Coba lagi.')
+      if (controller.signal.aborted) return
+      setResult((current) => current?.imageUrl === result.imageUrl ? { ...current, downloadExpiresAt: payload.downloadExpiresAt } : current)
+      setResultResetRemaining(null)
+    } catch (err) {
+      if (resultExtensionRef.current === controller) setResultSessionError(err.name === 'AbortError' ? 'Koneksi belum merespons. Coba lagi sebelum sesi berakhir.' : err.message)
+    } finally {
+      window.clearTimeout(timeout)
+      if (resultExtensionRef.current === controller) { resultExtensionRef.current = null; setResultExtending(false) }
+    }
+  }
+  function newSession() { stopCamera(); generateControllerRef.current?.abort(); resultExtensionRef.current?.abort(); resultExtensionRef.current = null; clearInterval(resultTimerRef.current); setResultResetRemaining(null); setResultExtending(false); setResultSessionError(''); setIsGalleryOpen(false); setResult(null); setQrData(''); setError(''); replacePhoto(null); setPhotoFile(null); setSceneId(null); setPeople(null); setCharacterId(null); go('home') }
 
   return <div className="app-shell">
     {screen === 'home' && <Home onStart={begin} onGallery={() => setIsGalleryOpen(true)} />}
@@ -182,6 +209,7 @@ function App() {
 
     {STEPS.includes(screen) && <Progress current={stepIndex} />}
     {isGalleryOpen && <GalleryModal items={gallery} loading={galleryLoading} error={galleryError} onRetry={loadGallery} onClose={() => setIsGalleryOpen(false)} />}
+    {screen === 'result' && resultResetRemaining !== null && <ResultExpiryDialog remaining={resultResetRemaining} extending={resultExtending} error={resultSessionError} canExtend={Boolean(result?.session?.extendEndpoint)} onContinue={extendResultSession} onExit={newSession} />}
   </div>
 }
 
@@ -264,15 +292,23 @@ const GENERATING_MESSAGES = [
 
 function GeneratingScreen({ photo }) {
   const [messageIndex, setMessageIndex] = useState(0)
+  const [photoSize, setPhotoSize] = useState({ width: '66%', height: '66%' })
+  function fitPhoto(event) {
+    const { naturalWidth, naturalHeight } = event.currentTarget
+    const diagonal = Math.hypot(naturalWidth, naturalHeight)
+    if (!diagonal) return
+    // Fit every corner inside the circle, for landscape and portrait photos.
+    setPhotoSize({ width: `${94 * naturalWidth / diagonal}%`, height: `${94 * naturalHeight / diagonal}%` })
+  }
   useEffect(() => {
     const timer = window.setInterval(() => setMessageIndex((index) => (index + 1) % GENERATING_MESSAGES.length), 5000)
     return () => window.clearInterval(timer)
   }, [])
   const message = GENERATING_MESSAGES[messageIndex]
-  return <main className="generating screen-content"><div className="generating-orbit"><div className="orbit-ring" /><img src={photo} alt="" /></div><p className="eyebrow">FOTO SEDANG DIPROSES</p><div className="generating-message" role="status" aria-live="polite" aria-atomic="true"><h1>{message.title}<br /><em>{message.emphasis}</em></h1><p className="generating-note">{message.note}</p></div><div className="loading-line"><span /></div><small>Waktu proses dapat berbeda untuk setiap foto.</small></main>
+  return <main className="generating screen-content"><div className="generating-orbit"><div className="orbit-ring" /><div className="generating-photo"><img src={photo} style={photoSize} onLoad={fitPhoto} alt="Foto seluruh pengunjung yang sedang diproses" /></div></div><p className="eyebrow">FOTO SEDANG DIPROSES</p><div className="generating-message" role="status" aria-live="polite" aria-atomic="true"><h1>{message.title}<br /><em>{message.emphasis}</em></h1><p className="generating-note">{message.note}</p></div><div className="loading-line"><span /></div><small>Waktu proses dapat berbeda untuk setiap foto.</small></main>
 }
 
-function EmailPhotoForm({ delivery }) {
+function EmailPhotoForm({ delivery, sessionExpiresAt }) {
   const [email, setEmail] = useState('')
   const [status, setStatus] = useState('idle')
   const [busy, setBusy] = useState(false)
@@ -301,7 +337,7 @@ function EmailPhotoForm({ delivery }) {
     }
     pollTimerRef.current = setTimeout(poll, 1000)
     return () => { cancelled = true; clearTimeout(pollTimerRef.current) }
-  }, [status, delivery?.endpoint])
+  }, [status, delivery?.endpoint, sessionExpiresAt])
 
   async function submit(event) {
     event.preventDefault()
@@ -348,13 +384,38 @@ function ResultScreen({ result, qrData, remaining, onNew, onGallery, onPrint }) 
     <div className="result-layout">
       <div className="polaroid"><img src={result?.imageUrl} alt="Hasil foto kenangan" /><div className="polaroid-footer"><img src="/assets/logo/logo-museum.webp" alt="Museum R.A. Kartini" /><span>Sejarah bukan hanya<br /><b>untuk dikenang.</b></span></div></div>
       <div className="result-tools">
-        <div className="qr-card"><div>{qrData ? <img src={qrData} alt="QR code untuk mengunduh foto" /> : <div className="qr-placeholder" aria-label="QR code sedang disiapkan">QR</div>}</div><div><strong>Scan untuk membawa<br />pulang fotomu</strong><small><b className="qr-expiry">QR tersedia {remaining} detik</b><br />Sesi berikutnya akan dimulai otomatis.</small></div></div>
-        <EmailPhotoForm key={result?.id || result?.imageUrl} delivery={result?.email} />
+        <div className={`qr-card ${remaining === 0 ? 'expired' : ''}`}><div>{qrData ? <img src={qrData} alt="QR code untuk mengunduh foto" /> : <div className="qr-placeholder" aria-label="QR code sedang disiapkan">QR</div>}</div><div><strong>Scan untuk membawa<br />pulang fotomu</strong><small><b className="qr-expiry">{remaining > 0 ? `QR tersedia ${remaining} detik` : 'QR sudah habis waktunya'}</b><br />Saat waktu habis, pilih lanjutkan atau keluar.</small></div></div>
+        <EmailPhotoForm key={result?.id || result?.imageUrl} delivery={result?.email} sessionExpiresAt={result?.downloadExpiresAt} />
         <div className="result-download-actions"><a className="button secondary download-button" href={result?.imageUrl} download="kisah-kartini.png">Unduh PNG <span>↓</span></a><button className="button secondary print-button" onClick={onPrint}>Cetak <span>↗</span></button></div>
       </div>
     </div>
     <div className="result-actions"><button className="button outline gallery-button" onClick={onGallery}>Lihat galeri <span>↗</span></button><button className="button outline" onClick={onNew}>Mulai sesi baru <span>↻</span></button></div>
   </main>
+}
+
+function ResultExpiryDialog({ remaining, extending, error, canExtend, onContinue, onExit }) {
+  const dialogRef = useRef(null)
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    dialogRef.current?.focus()
+    return () => { document.body.style.overflow = previousOverflow }
+  }, [])
+  function handleKey(event) {
+    if (event.key === 'Escape') { event.preventDefault(); onExit(); return }
+    if (event.key !== 'Tab') return
+    const buttons = [...dialogRef.current.querySelectorAll('button:not(:disabled)')]
+    const first = buttons[0]; const last = buttons[buttons.length - 1]
+    if (!first) return
+    if (event.shiftKey && (document.activeElement === first || document.activeElement === dialogRef.current)) { event.preventDefault(); last.focus() }
+    else if (!event.shiftKey && (document.activeElement === last || document.activeElement === dialogRef.current)) { event.preventDefault(); first.focus() }
+  }
+  return <div className="modal-backdrop result-expiry-backdrop"><section className="result-expiry-dialog" ref={dialogRef} tabIndex="-1" role="alertdialog" aria-modal="true" aria-labelledby="expiry-title" aria-describedby="expiry-copy" onKeyDown={handleKey}>
+    <p className="eyebrow">WAKTU QR SUDAH HABIS</p><h2 id="expiry-title">Masih ingin<br /><em>menyimpan fotomu?</em></h2>
+    <p id="expiry-copy">Kamu akan kembali ke beranda dalam <b className="qr-expiry">{remaining} detik</b>. Pilih lanjutkan untuk mengaktifkan QR lagi selama 15 detik.</p>
+    {error && <p className="error-message" role="alert">{error}</p>}
+    <div className="expiry-actions"><button className="button primary" onClick={onContinue} disabled={extending || !canExtend}>{extending ? 'Memperpanjang…' : 'Lanjutkan (15 detik)'}</button><button className="button outline" onClick={onExit}>Keluar</button></div>
+  </section></div>
 }
 
 function GalleryModal({ items, loading, error, onRetry, onClose }) {
