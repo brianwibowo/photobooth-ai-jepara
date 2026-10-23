@@ -7,6 +7,7 @@ import './styles.css'
 const STEPS = ['scene', 'character', 'camera', 'confirm']
 const STEP_LABELS = ['Tempat', 'Tokoh', 'Foto', 'Cek foto']
 const SESSION_IDLE_MS = 2 * 60 * 1000
+const CAPTURE_COUNTDOWN_SECONDS = 7
 
 function App() {
   const [screen, setScreen] = useState('home')
@@ -233,7 +234,7 @@ function CameraScreen({ people, onPeople, videoRef, cameraReady, onStart, onStop
   useEffect(() => { onStart(); return () => { window.clearInterval(countdownTimerRef.current); onStop() } }, [])
   function captureWithCountdown() {
     if (countdown !== null) return
-    let value = 3
+    let value = CAPTURE_COUNTDOWN_SECONDS
     setCountdown(value)
     countdownTimerRef.current = window.setInterval(() => {
       value -= 1
@@ -241,7 +242,7 @@ function CameraScreen({ people, onPeople, videoRef, cameraReady, onStart, onStop
       else setCountdown(value)
     }, 1000)
   }
-  return <main className="flow screen-content horizontal-flow camera-screen"><FlowHeading kicker="03 / AMBIL FOTO" title={<>Senyum, ini akan<br /><em>jadi kenangan.</em></>} copy="Pastikan semua wajah terlihat. Sentuh Ambil foto, lalu lihat ke kamera saat hitung mundur.">
+  return <main className="flow screen-content horizontal-flow camera-screen"><FlowHeading kicker="03 / AMBIL FOTO" title={<>Senyum, ini akan<br /><em>jadi kenangan.</em></>} copy={`Pastikan semua wajah terlihat. Sentuh Ambil foto, lalu lihat ke kamera selama hitung mundur ${CAPTURE_COUNTDOWN_SECONDS} detik.`}>
     <fieldset className="capture-people" disabled={countdown !== null}>
       <legend>Jumlah pengunjung <small>opsional</small></legend>
       <div className="capture-people-options">{[null, 1, 2, 3].map((count) => <button type="button" key={count ?? 'photo'} aria-pressed={people === count} aria-label={count === null ? 'Ikuti jumlah orang di foto' : `${count} pengunjung`} onClick={() => onPeople(count)}>{count === null ? 'Ikuti foto' : count}</button>)}</div>

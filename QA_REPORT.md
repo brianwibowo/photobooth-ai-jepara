@@ -2,6 +2,14 @@
 
 Tanggal pemeriksaan awal: 22 Oktober 2026.
 
+## Hitung mundur kamera tujuh detik — 23 Oktober 2026
+
+Browser dengan kamera simulasi memverifikasi angka awal 7, masih berada di
+kamera pada detik ketiga dan keenam, lalu mengambil foto pada detik ketujuh.
+Ambil ulang memulai dari 7 dan kembali ke tokoh membatalkan pengambilan.
+`npm run check` dan `git diff --check` lulus. Deteksi wajah otomatis belum
+ditambahkan pada revisi ini.
+
 ## Beranda slideshow, konfirmasi, loading, QR, dan galeri — 23 Oktober 2026
 
 - Beranda landscape terbagi dua sama lebar, gambar penuh tinggi layar di kanan,

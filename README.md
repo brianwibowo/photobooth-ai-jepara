@@ -72,6 +72,8 @@ model berdasarkan foto; ini bukan deteksi wajah otomatis. Bila jumlah dipilih,
 API mengirim angka tersebut sebagai batasan prompt tanpa membutuhkan data tamu. Konfirmasi foto tetap
 tersedia sebelum generasi, termasuk opsi ambil ulang. Header terpisah dihapus;
 logo ditempatkan di konten utama. Layout mendukung kiosk landscape dan portrait.
+Hitung mundur pengambilan foto berlangsung tujuh detik; ambil ulang memulai
+hitung mundur baru dan keluar dari kamera membatalkan pengambilan.
 
 Pada beranda landscape, teks mengisi sisi kiri dan slideshow tujuh ilustrasi
 tokoh memenuhi separuh kanan layar. Gambar berganti setiap enam detik; preferensi
