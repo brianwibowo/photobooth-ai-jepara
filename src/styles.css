@@ -40,24 +40,26 @@ h1 em, h2 em { color: var(--coral); font-weight: 500; }
 .logo-strip { display: flex; align-items: center; gap: 18px; margin-bottom: 30px; }
 .logo-strip img { width: 44px; height: 48px; object-fit: contain; }
 .logo-strip img:nth-child(3), .logo-strip img:nth-child(4) { width: 54px; }
-.home.screen-content { display: grid; grid-template-columns: minmax(0, 1.12fr) minmax(320px, .88fr); gap: clamp(28px, 4vw, 72px); align-items: stretch; max-width: 1540px; padding: clamp(28px, 4vh, 58px) clamp(24px, 4vw, 72px); }
-.hero-copy { min-width: 0; padding: 0; display: flex; flex-direction: column; justify-content: center; }
-.home h1 { font-size: clamp(52px, 5.2vw, 94px); }
-.intro { font-size: clamp(18px, 1.4vw, 24px); line-height: 1.6; color: var(--muted); max-width: 640px; margin: 28px 0 32px; }
-.home-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 20px; }
-.home-actions .primary { min-height: 78px; font-size: 22px; }
-.gallery-button { border-color: var(--ink); }
-.home-note { display: flex; gap: 14px; margin-top: 32px; font-size: 16px; color: var(--muted); line-height: 1.6; }
-.ornament { color: var(--coral); font-size: 22px; }
-.home-museum-art { margin-top: clamp(22px, 3vh, 42px); max-width: 820px; }
-.home-museum-art img { display: block; width: 100%; max-height: 38vh; object-fit: contain; object-position: left bottom; mix-blend-mode: multiply; }
-.home-gallery { min-width: 0; min-height: 0; display: flex; flex-direction: column; justify-content: center; padding: 12px 0; }
-.home-gallery-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 18px; margin-bottom: 14px; color: var(--coral); font: 500 13px/1.4 'DM Mono', monospace; letter-spacing: .13em; }
-.home-gallery-heading small { color: var(--muted); font: 400 13px/1.4 'DM Sans', sans-serif; letter-spacing: 0; }
-.home-gallery-scroll { height: min(78vh, 760px); min-height: 420px; overflow: hidden; display: flex; flex-direction: column; gap: 18px; padding-right: 8px; scrollbar-width: none; }
-.home-gallery-scroll::-webkit-scrollbar { display: none; }
-.home-gallery-scroll img { display: block; width: 100%; aspect-ratio: 1.72 / 1; flex: 0 0 auto; object-fit: cover; border-radius: 14px; background: var(--ink-deep); box-shadow: 0 8px 22px rgba(23, 62, 64, .12); }
-.home-gallery-empty { display: grid; place-items: center; min-height: 220px; padding: 24px; color: var(--muted); border: 1px dashed var(--line); text-align: center; }
+.home.screen-content { position: relative; display: grid; grid-template-columns: minmax(0, 1.08fr) minmax(330px, .64fr); grid-template-rows: minmax(0, 1fr); gap: clamp(28px, 5vw, 84px); align-items: stretch; max-width: none; height: 100vh; height: 100dvh; max-height: 100vh; max-height: 100dvh; min-height: 0; padding: clamp(28px, 4vh, 56px) clamp(32px, 5vw, 84px); background: #fff; overflow: hidden; }
+.hero-copy { min-width: 0; padding-top: clamp(14px, 2vh, 28px); display: flex; flex-direction: column; align-items: flex-start; min-height: 0; }
+.home-title { width: min(100%, 760px); }
+.home-eyebrow { margin-bottom: 8px; color: #b9674f; font: 500 12px/1.4 'DM Mono', monospace; letter-spacing: .16em; }
+.home-title-top { display: flex; align-items: center; gap: clamp(18px, 3vw, 48px); }
+.home-title-top > span { color: #81541e; font: 700 clamp(42px, 4.7vw, 76px)/.98 'DM Sans', sans-serif; letter-spacing: -.055em; }
+.home-brand { width: clamp(52px, 4.4vw, 72px); height: clamp(52px, 4.4vw, 72px); object-fit: contain; flex: 0 0 auto; }
+.home-title > em { display: block; color: var(--ink); font: 500 clamp(58px, 6.4vw, 104px)/.98 'Playfair Display', serif; font-style: italic; letter-spacing: -.055em; }
+.home-title-rule { position: relative; width: min(100%, 650px); height: 18px; margin-top: 10px; border-bottom: 2px solid #e5c981; }
+.home-title-rule span { position: absolute; right: -2px; bottom: -13px; padding-left: 8px; color: #e5c981; background: #fff; font-size: 24px; line-height: 1; }
+.home-museum-art { width: min(100%, 900px); margin-top: clamp(14px, 2.5vh, 32px); }
+.home-museum-art img { display: block; width: 100%; aspect-ratio: 1.8 / 1; object-fit: contain; object-position: left center; mix-blend-mode: multiply; }
+.home-start { display: inline-flex; align-items: center; justify-content: space-between; gap: 28px; min-width: 190px; min-height: 56px; margin-top: clamp(10px, 2vh, 22px); padding: 12px 22px 12px 34px; border: 4px solid #f2a23a; border-radius: 999px; background: #2caa20; color: #fff; font-size: clamp(20px, 1.7vw, 30px); font-weight: 800; letter-spacing: .02em; box-shadow: 0 2px 0 rgba(128, 73, 10, .18); }
+.home-start:hover { background: #258f1b; }
+.home-start span { font-size: .9em; }
+.home-static-catalog { min-width: 0; min-height: 0; height: 100%; padding-top: clamp(22px, 4vh, 56px); overflow: hidden; }
+.home-story-viewport { height: 100%; min-height: 0; overflow: hidden; }
+.home-story-track { display: flex; flex-direction: column; gap: clamp(14px, 1.5vw, 22px); }
+.home-story-card { position: relative; overflow: hidden; width: 100%; height: clamp(170px, 28vh, 300px); flex: 0 0 auto; border-radius: 14px; background: #e9e6df; box-shadow: 0 8px 24px rgba(23, 62, 64, .1); }
+.home-story-card img { display: block; width: 100%; height: 100%; object-fit: cover; }
 
 /* Each decision occupies the main screen; the compact progress strip stays below it. */
 .flow { min-height: calc(100dvh - 76px); display: flex; flex-direction: column; justify-content: center; }
@@ -282,10 +284,8 @@ h1 em, h2 em { color: var(--coral); font-weight: 500; }
   .picker-screen > .flow-heading { display: block; }
   .picker-screen .flow-identity { margin: 0 0 24px; }
   .home.screen-content { grid-template-columns: 1fr; align-content: center; }
-  .hero-copy { max-width: none; }
-  .home h1 { font-size: clamp(64px, 7vw, 86px); }
-  .home-actions { flex-direction: row; align-items: center; }
-  .hero-visual { height: 48vh; }
+  .hero-copy { max-width: none; padding-top: 24px; }
+  .home-static-catalog { padding-top: 24px; }
   .horizontal-flow { display: flex; align-items: stretch; gap: 40px; }
   .flow-heading h1 { font-size: clamp(54px, 6vw, 76px); }
   .flow-heading > p:last-of-type { font-size: 22px; max-width: 800px; }
@@ -310,17 +310,16 @@ h1 em, h2 em { color: var(--coral); font-weight: 500; }
   .flow-heading h1 { font-size: 36px; }
   .screen-content { padding: 28px 22px; }
   .home.screen-content { display: flex; flex-direction: column; align-items: stretch; }
-  .hero-copy { padding: 28px 22px; }
-  .home h1 { font-size: 48px; }
-  .home-actions { flex-direction: row; align-items: center; gap: 14px; }
-  .home-actions .button { min-width: 0; min-height: 66px; padding: 14px 18px; font-size: 16px; gap: 12px; }
-  .hero-visual { height: 440px; }
-  .home-museum-art { margin-top: 18px; }
-  .home-museum-art img { max-height: 220px; }
-  .home-gallery { min-height: 0; padding-top: 12px; }
-  .home-gallery-scroll { height: 360px; min-height: 0; gap: 12px; }
-  .home-gallery-scroll img { aspect-ratio: 1.5 / 1; border-radius: 10px; }
-  .eyebrow { font-size: 11px; }
+  .home.screen-content { height: auto; min-height: 100dvh; overflow: visible; }
+  .hero-copy { padding-top: 8px; }
+  .home-title-top > span { font-size: 42px; }
+  .home-title > em { font-size: 54px; }
+  .home-brand { width: 52px; height: 52px; }
+  .home-title-rule { width: 88%; }
+  .home-museum-art { margin-top: 22px; }
+  .home-start { min-width: 160px; min-height: 50px; padding-left: 24px; font-size: 19px; }
+  .home-static-catalog { height: 420px; padding-top: 18px; }
+  .home-story-card { height: 126px; border-radius: 10px; }
   .flow-heading > p:last-of-type { font-size: 16px; }
   .scene-grid { grid-template-columns: 1fr; gap: 14px; }
   .scene-card { height: 150px; }

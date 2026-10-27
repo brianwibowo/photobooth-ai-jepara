@@ -6,7 +6,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import sharp from 'sharp'
 import { createApp } from '../server/index.js'
-import { scenes, characters } from '../src/data.js'
+import { scenes, characters, getSceneForCharacter } from '../src/data.js'
 
 for (const transport of ['gemini', 'openrouter-images', 'openrouter-chat']) {
   test(`${transport} receives visitor, selected child, and empty scene references in strict order`, async (t) => {
@@ -33,11 +33,17 @@ for (const transport of ['gemini', 'openrouter-images', 'openrouter-chat']) {
     })
     const base = `http://127.0.0.1:${server.address().port}`
     const expectedImage = async (asset) => (await sharp(fileURLToPath(new URL(`../public${asset}`, import.meta.url))).resize({ width: 1024, withoutEnlargement: true }).jpeg({ quality: 86 }).toBuffer()).toString('base64')
-    for (const scene of scenes) {
-      for (const people of [undefined, 1, 2, 3, 4]) {
+    for (const { characterId, peopleValues } of [
+      { characterId: 'soesalit', peopleValues: [undefined, 1, 2, 3, 4] },
+      { characterId: 'kartini', peopleValues: [1] },
+    ]) {
+      const character = characters.find((item) => item.id === characterId)
+      for (const scene of scenes) {
+        const selectedScene = getSceneForCharacter(scene.id, characterId)
+        for (const people of peopleValues) {
         const form = new FormData()
         form.append('photo', new Blob([image], { type: 'image/png' }), 'photo.png')
-        form.append('sceneId', scene.id); form.append('characterId', 'soesalit')
+        form.append('sceneId', scene.id); form.append('characterId', characterId)
         if (people !== undefined) form.append('people', String(people))
         const response = await fetch(base + '/api/generate', { method: 'POST', body: form })
         assert.equal(response.status, 200)
@@ -54,14 +60,19 @@ for (const transport of ['gemini', 'openrouter-images', 'openrouter-chat']) {
         }
         assert.equal(references.length, 3)
         assert.equal(references[0], (await sharp(image).rotate().resize({ width: 1536, withoutEnlargement: true }).jpeg({ quality: 88 }).toBuffer()).toString('base64'))
-        assert.equal(references[1], await expectedImage(characters.find((c) => c.id === 'soesalit').reference))
-        assert.equal(references[2], await expectedImage(scene.background))
-        if (scene.id !== 'gerbang') assert.match(scene.background, /empty-v1\.webp$/)
-        assert.match(prompt, /exactly ONE Soesalit/)
+        assert.equal(references[1], await expectedImage(character.reference))
+        assert.equal(references[2], await expectedImage(selectedScene.background))
+        if (scene.id !== 'gerbang') assert.match(selectedScene.background, /empty-v1\.webp$/)
+        assert.match(prompt, new RegExp(`exactly ONE ${character.name.replaceAll('.', '\\.')}`))
         assert.match(prompt, people === undefined ? /V \+ 1 people in total/ : new RegExp(`${people + 1} people in total`))
-        assert.match(prompt, /child historical figure remains a child/)
+        if (characterId === 'soesalit') assert.match(prompt, /child historical figure remains a child/)
+        if (characterId === 'kartini') {
+          assert.match(prompt, /fixed activity is (?:Menyambut pengunjung dan berfoto|Membatik|Mengajar)/)
+          assert.match(prompt, new RegExp(`fixed place is ${selectedScene.place}`))
+        }
         assert.match(prompt, /PERSON-FREE environment plate/)
-        assert.match(prompt, new RegExp(scene.name))
+        assert.match(prompt, new RegExp(selectedScene.name))
+        }
       }
     }
     const originalBackground = scenes[1].background

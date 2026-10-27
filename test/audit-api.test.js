@@ -6,7 +6,7 @@ import path from 'node:path'
 import crypto from 'node:crypto'
 import sharp from 'sharp'
 import { createApp } from '../server/index.js'
-import { scenes, characters } from '../src/data.js'
+import { scenes, characters, getSceneForCharacter } from '../src/data.js'
 
 async function fixture(t, overrides = {}) {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'museum-audit-'))
@@ -63,13 +63,27 @@ test('all 21 figure/location combinations preserve the selected IDs', async (t) 
     assert.equal(response.status, 200)
     const result = await response.json()
     assert.deepEqual(result.character, { id: character.id, name: character.name })
-    assert.deepEqual(result.scene, { id: scene.id, name: scene.name, location: scene.location })
+    const selectedScene = getSceneForCharacter(scene.id, character.id)
+    const expectedScene = { id: scene.id, name: selectedScene.name, location: selectedScene.location }
+    if (selectedScene.activity) expectedScene.activity = selectedScene.activity
+    if (selectedScene.place) expectedScene.place = selectedScene.place
+    assert.deepEqual(result.scene, expectedScene)
     assert.match(result.filename, /^photobooth_kartini_\d{6,}\.png$/)
     assert.equal(filenames.has(result.filename), false)
     filenames.add(result.filename)
     assert.equal(f.calls.at(-1).sceneId, scene.id)
     assert.equal(f.calls.at(-1).characterId, character.id)
   }
+})
+
+test('character-specific scene rejects the old shared activity for Soesalit', async (t) => {
+  const f = await fixture(t)
+  const response = await f.post(1, { scene: 'soesalit-dakon', character: 'soesalit' })
+  assert.equal(response.status, 200)
+  const result = await response.json()
+  assert.deepEqual(result.scene, { id: 'soesalit-dakon', name: 'Bermain Dakon', location: 'Aula museum', activity: 'Bermain dakon/congklak', place: 'Aula museum' })
+  assert.equal(f.calls.at(-1).sceneId, 'soesalit-dakon')
+  assert.equal((await f.post(1, { scene: 'kartini-membatik', character: 'soesalit' })).status, 400)
 })
 
 test('admin export requires a valid token and malformed Unicode tokens return 401', async (t) => {

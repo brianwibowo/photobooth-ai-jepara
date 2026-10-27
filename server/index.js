@@ -9,7 +9,7 @@ import fs from 'node:fs/promises'
 import fsSync from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { characters, scenes, getCharacter, getScene } from '../src/data.js'
+import { characters, sceneCatalog, getCharacter, getSceneForCharacter } from '../src/data.js'
 import { createPhotoEmailService } from './photo-email.js'
 import { buildGenerationPrompt } from './generation-prompt.js'
 import { createGenerationJobs } from './generation-jobs.js'
@@ -47,7 +47,7 @@ function formatRetryDelay(value) {
 
 function catalogMaps() {
   const characterMap = Object.fromEntries(characters.map((item) => [item.id, item]))
-  const sceneMap = Object.fromEntries(scenes.map((item) => [item.id, item]))
+  const sceneMap = Object.fromEntries(sceneCatalog.map((item) => [item.id, item]))
   return { characterMap, sceneMap }
 }
 
@@ -305,7 +305,7 @@ export function createApp(options = {}) {
     const apiKey = process.env.GEMINI_API_KEY
     if (!apiKey) throw Object.assign(new Error('missing api key'), { code: 'MISSING_API_KEY' })
     const configuredModel = process.env.GEMINI_MODEL || DEFAULT_MODEL
-    const scene = sceneMap[sceneId] || getScene(sceneId)
+    const scene = getSceneForCharacter(sceneId, characterId)
     const character = characterMap[characterId] || getCharacter(characterId)
     const { visitor, charRef, sceneRef } = await prepareGenerationReferences({ photoBuffer, character, scene })
     const prompt = buildGenerationPrompt({ scene, character, people })
@@ -326,7 +326,7 @@ export function createApp(options = {}) {
     if (!apiKey) throw Object.assign(new Error('missing openrouter api key'), { code: 'MISSING_OPENROUTER_KEY' })
     const configuredModel = process.env.OPENROUTER_MODEL || process.env.AI_INFOGRAPHIC_MODEL || 'openai/gpt-image-2.5-flare'
 
-    const scene = sceneMap[sceneId] || getScene(sceneId)
+    const scene = getSceneForCharacter(sceneId, characterId)
     const character = characterMap[characterId] || getCharacter(characterId)
     const { visitor, charRef, sceneRef } = await prepareGenerationReferences({ photoBuffer, character, scene })
     const prompt = buildGenerationPrompt({ scene, character, people })
@@ -498,12 +498,12 @@ export function createApp(options = {}) {
   }
   function resultPayload(row) {
     const character = getCharacter(row.character_id)
-    const scene = getScene(row.scene_id)
+    const scene = getSceneForCharacter(row.scene_id, row.character_id)
     return {
       id: row.id,
       filename: resultFilename(row.id, path.extname(row.image_file) === '.webp' ? 'webp' : 'png'),
       character: { id: row.character_id, name: character.name },
-      scene: { id: row.scene_id, name: scene.name, location: scene.location },
+      scene: { id: row.scene_id, name: scene.name, location: scene.location, activity: scene.activity, place: scene.place },
       imageUrl: `/api/download/${row.token}`,
       thumbnailUrl: `/api/gallery/image/${encodeURIComponent(row.thumbnail_file)}`,
       qrUrl: `${publicBaseUrl}/api/download/${row.token}`,
@@ -546,8 +546,9 @@ export function createApp(options = {}) {
     const imageError = await validateImage(req.file)
     if (imageError) return res.status(400).json({ error: imageError, code: 'PHOTO_INVALID', retryable: false })
     const { sceneId, characterId } = req.body
-    const scene = sceneMap[sceneId]; const character = characterMap[characterId]
-    if (!scene || !character || !Array.isArray(scene.characterIds) || !scene.characterIds.includes(characterId)) return res.status(400).json({ error: 'Adegan atau tokoh tidak valid.', code: 'CONFIG_INVALID', retryable: false })
+    const scene = sceneMap[sceneId] ? getSceneForCharacter(sceneId, characterId) : null; const character = characterMap[characterId]
+    const characterMayUseScene = character?.sceneIds?.includes(sceneId) ?? scene?.characterIds?.includes(characterId)
+    if (!scene || !character || !characterMayUseScene) return res.status(400).json({ error: 'Adegan atau tokoh tidak valid.', code: 'CONFIG_INVALID', retryable: false })
     const people = req.body.people === undefined ? null : Number(req.body.people)
     const guestError = validateGuestPayload(req.body)
     if (guestError) return res.status(400).json({ error: guestError, code: 'GUESTS_INVALID', retryable: false })
