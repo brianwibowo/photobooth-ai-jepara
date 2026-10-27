@@ -32,9 +32,9 @@ async function fixture(t, overrides = {}) {
   return { ...instance, base, dir, image, calls, post, form, setTime: (value) => { time = value } }
 }
 
-test('visitor matrix accepts automatic count and 1, 3, 4, 6, 8, 20 without guest-book metadata', async (t) => {
+test('visitor matrix accepts automatic count and 1, 2, 3, 4 without guest-book metadata', async (t) => {
   const f = await fixture(t)
-  for (const people of [undefined, 1, 3, 4, 6, 8, 20]) {
+  for (const people of [undefined, 1, 2, 3, 4]) {
     const response = await f.post(people)
     assert.equal(response.status, 200)
     assert.equal(f.calls.at(-1).people, people ?? null)
@@ -47,7 +47,7 @@ test('visitor matrix accepts automatic count and 1, 3, 4, 6, 8, 20 without guest
 
 test('invalid count, metadata, image, scene, and figure are rejected before invoking a provider', async (t) => {
   const f = await fixture(t)
-  for (const people of [0, -1, 21, 1.5, '', 'many', 'Infinity', '[]']) assert.equal((await f.post(people)).status, 400)
+  for (const people of [0, -1, 5, 21, 1.5, '', 'many', 'Infinity', '[]']) assert.equal((await f.post(people)).status, 400)
   for (const extra of [{ noPhoto: true }, { bytes: Buffer.from('broken image') }, { scene: 'invalid' }, { character: 'invalid' }, { guests: 'broken JSON' }, { guests: '[]' }]) assert.equal((await f.post(1, extra)).status, 400)
   assert.equal((await f.post(1, { type: 'text/plain' })).status, 415)
   assert.equal((await f.post(1, { bytes: Buffer.alloc(8 * 1024 * 1024 + 1) })).status, 413)
@@ -59,7 +59,7 @@ test('all 21 figure/location combinations preserve the selected IDs', async (t) 
   const f = await fixture(t)
   const filenames = new Set()
   for (const scene of scenes) for (const character of characters) {
-    const response = await f.post(4, { scene: scene.id, character: character.id })
+    const response = await f.post(3, { scene: scene.id, character: character.id })
     assert.equal(response.status, 200)
     const result = await response.json()
     assert.deepEqual(result.character, { id: character.id, name: character.name })
@@ -91,13 +91,13 @@ test('refresh recovery and concurrent retries of the same request invoke the pro
   const f = await fixture(t, { generate: async () => { started(); await gate; return image } })
   const id = crypto.randomUUID(); const headers = { 'x-generation-id': id }
   const controller = new AbortController()
-  const first = f.post(6, {}, { headers, signal: controller.signal }).catch((error) => error)
+  const first = f.post(3, {}, { headers, signal: controller.signal }).catch((error) => error)
   await ready; controller.abort(); await first
   const pending = await fetch(f.base + '/api/generations/' + id)
   assert.equal(pending.status, 202)
   assert.match(pending.headers.get('cache-control'), /no-store/)
-  assert.equal((await f.post(6, {}, { headers })).status, 202)
-  assert.equal((await f.post(4, {}, { headers })).status, 409)
+  assert.equal((await f.post(3, {}, { headers })).status, 202)
+  assert.equal((await f.post(2, {}, { headers })).status, 409)
   assert.equal(f.calls.length, 1)
   release()
   let status
@@ -107,14 +107,14 @@ test('refresh recovery and concurrent retries of the same request invoke the pro
     await new Promise((resolve) => setTimeout(resolve, 10))
   }
   assert.equal(status.status, 'complete')
-  const replay = await f.post(6, {}, { headers })
+  const replay = await f.post(3, {}, { headers })
   assert.equal(replay.status, 200)
   assert.deepEqual(await replay.json(), status.result)
   assert.equal(f.calls.length, 1)
   assert.equal(f.db.prepare('SELECT COUNT(*) AS n FROM results').get().n, 1)
   f.setTime(Date.parse(status.result.downloadExpiresAt) + 10000)
   assert.equal((await fetch(f.base + '/api/generations/' + id)).status, 410)
-  assert.equal((await f.post(6, {}, { headers })).status, 410)
+  assert.equal((await f.post(3, {}, { headers })).status, 410)
   assert.equal((await fetch(f.base + '/api/generations/invalid')).status, 400)
   assert.equal((await fetch(f.base + '/api/generations/' + crypto.randomUUID())).status, 404)
 })
@@ -123,10 +123,10 @@ test('slot reservation covers the cooldown interval and busy jobs fail safely', 
   const f = await fixture(t, { options: { minIntervalMs: 120 } })
   assert.equal((await f.post(1)).status, 200)
   const id = crypto.randomUUID()
-  const first = f.post(4, {}, { headers: { 'x-generation-id': id } })
+  const first = f.post(3, {}, { headers: { 'x-generation-id': id } })
   for (let i = 0; i < 100 && !f.db.prepare('SELECT id FROM generation_jobs WHERE id = ?').get(id); i += 1) await new Promise((resolve) => setTimeout(resolve, 1))
   const secondId = crypto.randomUUID()
-  const second = await f.post(6, {}, { headers: { 'x-generation-id': secondId } })
+  const second = await f.post(3, {}, { headers: { 'x-generation-id': secondId } })
   assert.equal(second.status, 429)
   assert.equal((await second.json()).code, 'GENERATION_BUSY')
   assert.equal((await first).status, 200)
@@ -145,7 +145,7 @@ test('provider failure, invalid provider image, and persistence failure do not e
   for (const [value, expected] of [['invalid', 502], ['error', 502], ['missing-dir', 500]]) {
     mode = value
     const id = crypto.randomUUID()
-    const response = await f.post(4, {}, { headers: { 'x-generation-id': id } })
+    const response = await f.post(3, {}, { headers: { 'x-generation-id': id } })
     assert.equal(response.status, expected)
     const payload = await response.json()
     assert.equal(payload.status, 'failed')
@@ -158,9 +158,9 @@ test('provider failure, invalid provider image, and persistence failure do not e
 test('rate limits include a retry header and image pixel limits reject oversized inputs', async (t) => {
   const f = await fixture(t, { options: { rateLimit: 2, maxPixels: 1000000 } })
   const large = await sharp({ create: { width: 1500, height: 1500, channels: 3, background: 'white' } }).png().toBuffer()
-  assert.equal((await f.post(6, { bytes: large })).status, 400)
-  assert.equal((await f.post(6)).status, 200)
-  const limited = await f.post(6)
+  assert.equal((await f.post(3, { bytes: large })).status, 400)
+  assert.equal((await f.post(3)).status, 200)
+  const limited = await f.post(3)
   assert.equal(limited.status, 429)
   assert.ok(Number(limited.headers.get('retry-after')) > 0)
 })

@@ -34,7 +34,7 @@ for (const transport of ['gemini', 'openrouter-images', 'openrouter-chat']) {
     const base = `http://127.0.0.1:${server.address().port}`
     const expectedImage = async (asset) => (await sharp(fileURLToPath(new URL(`../public${asset}`, import.meta.url))).resize({ width: 1024, withoutEnlargement: true }).jpeg({ quality: 86 }).toBuffer()).toString('base64')
     for (const scene of scenes) {
-      for (const people of [undefined, 1, 3, 4, 6, 8]) {
+      for (const people of [undefined, 1, 2, 3, 4]) {
         const form = new FormData()
         form.append('photo', new Blob([image], { type: 'image/png' }), 'photo.png')
         form.append('sceneId', scene.id); form.append('characterId', 'soesalit')

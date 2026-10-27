@@ -64,9 +64,9 @@ Put Nginx/Caddy in front for HTTPS. The API stores generated files in `data/gene
 
 ## Kiosk UI dan aset
 
-Alur utama: **Tempat → Tokoh → Foto → Cek foto → Hasil QR**.
+Alur utama: **Tokoh → Tempat → Foto → Cek foto → Hasil QR**.
 Tempat dan tokoh dipilih pada layar terpisah. Nama dan jenis kelamin tidak
-diminta. Jumlah pengunjung dapat dipilih secara opsional (1–20) pada layar kamera,
+diminta. Jumlah pengunjung dapat dipilih secara opsional (1–4) pada layar kamera,
 tanpa menghitung tokoh pilihan. Default "Ikuti foto" menyerahkan acuan jumlah ke
 model berdasarkan foto; ini bukan deteksi wajah otomatis. Bila jumlah dipilih,
 API mengirim angka tersebut sebagai batasan prompt tanpa membutuhkan data tamu. Konfirmasi foto tetap
@@ -75,12 +75,13 @@ logo ditempatkan di konten utama. Layout mendukung kiosk landscape dan portrait.
 Hitung mundur pengambilan foto berlangsung tujuh detik; ambil ulang memulai
 hitung mundur baru dan keluar dari kamera membatalkan pengambilan.
 
-Pada beranda landscape, teks mengisi sisi kiri dan slideshow tujuh ilustrasi
-tokoh memenuhi separuh kanan layar. Gambar berganti setiap enam detik; preferensi
-reduced motion mempertahankan gambar pertama. Caption di bawah gambar dihapus.
+Pada beranda landscape, teks dan ilustrasi gerbang museum mengisi sisi kiri,
+sedangkan galeri hasil terbaru mengisi sisi kanan. Galeri memuat maksimal delapan
+foto dan bergulir otomatis secara berulang; preferensi reduced motion menghentikan
+gerak otomatis. Tombol **Lihat galeri** tetap tersedia di beranda dan hasil.
 Teks loading berganti setiap lima detik selama permintaan AI masih berjalan,
 tanpa mengklaim persentase atau tahap internal provider. Hitung mundur QR
-ditampilkan dengan hijau tebal. Tombol **Lihat galeri** tersedia di beranda dan hasil.
+ditampilkan dengan hijau tebal.
 
 Katalog di `src/data.js` memakai folder berikut di `public/assets`:
 
@@ -101,8 +102,10 @@ Preview dapat dibangun ulang dengan `npm run assets:previews` dari PNG sumber
 yang disimpan di repository. File WebP hasilnya ikut di-commit agar build Docker
 tidak perlu membawa pustaka sumber yang besar.
 
-Semua tokoh tersedia pada ketiga latar. Mengganti latar mempertahankan tokoh yang
-sudah dipilih. Soesalit mengikuti referensi anak, termasuk pada prompt generasi.
+Kartu tempat difilter berdasarkan `sceneIds` pada tokoh yang sudah dipilih, sehingga
+urutan interaksi selalu tokoh lalu tempat. Saat ini semua tokoh tersedia pada ketiga
+latar yang memiliki aset lengkap. Mengganti tokoh mengosongkan tempat sebelumnya.
+Soesalit mengikuti referensi anak, termasuk pada prompt generasi.
 Jalankan `npm run check` untuk mengecek keberadaan aset, relasi katalog, dan build.
 
 Referensi generasi selalu berurutan: foto pengunjung, portrait satu tokoh
@@ -217,7 +220,7 @@ akun mendukungnya, [app password memerlukan 2-Step Verification](https://support
 
 - `GET /api/health`: readiness and provider mode.
 - `GET /api/gallery?limit=8`: newest public thumbnails only (default and maximum 8).
-- `POST /api/generate`: internal multipart camera capture with `photo`, `sceneId`, and `characterId`; optional `people` (1–20) is accepted independently; legacy `guests` data is validated when supplied; the kiosk does not expose a file-upload control.
+- `POST /api/generate`: internal multipart camera capture with `photo`, `sceneId`, and `characterId`; optional `people` (1–4) is accepted independently; legacy `guests` data is validated when supplied; the kiosk does not expose a file-upload control.
 - `GET /api/generations/:id`: status privat running/complete/failed; hasil kedaluwarsa tidak dipulihkan.
 - `POST /api/results/:token/email`: token sesi aktif + JSON `{ "email": "..." }`; membuat job pengiriman lampiran.
 - `GET /api/results/:token/email`: status job tanpa menampilkan alamat penerima.

@@ -3,11 +3,10 @@ import { createRoot } from 'react-dom/client'
 import QRCode from 'qrcode'
 import { characters, scenes, logos } from './data'
 import './styles.css'
-import { MAX_VISITORS } from './config.js'
 import { IDLE_MS, readSnapshot, writeSnapshot, clearSnapshot, savePhoto, loadPhoto, removePhoto, cleanupPhotos } from './session-store.js'
 
-const STEPS = ['scene', 'character', 'camera', 'confirm']
-const STEP_LABELS = ['Tempat', 'Tokoh', 'Foto', 'Cek foto']
+const STEPS = ['character', 'scene', 'camera', 'confirm']
+const STEP_LABELS = ['Tokoh', 'Tempat', 'Foto', 'Cek foto']
 const SESSION_IDLE_MS = IDLE_MS
 const CAPTURE_COUNTDOWN_SECONDS = 7
 
@@ -95,8 +94,8 @@ function App() {
         const expiry = Date.parse(restoredResult?.downloadExpiresAt || '')
         if (!Number.isFinite(expiry) || Date.now() >= expiry + (restoredResult.session?.graceSeconds ?? 10) * 1000) { clearSnapshot(); void removePhoto(saved.id).catch(() => {}); setHydrated(true); return }
       } else {
-        if (!saved.sceneId && restoredScreen !== 'home') restoredScreen = 'scene'
-        else if (!saved.characterId && ['camera', 'confirm', 'generating'].includes(restoredScreen)) restoredScreen = 'character'
+        if (!saved.characterId && restoredScreen !== 'home') restoredScreen = 'character'
+        else if (!saved.sceneId && ['camera', 'confirm', 'generating'].includes(restoredScreen)) restoredScreen = 'scene'
         else if (restoredScreen === 'confirm' && !blob) { restoredScreen = 'camera'; notice = 'Foto sebelumnya belum tersedia. Silakan ambil ulang.' }
         else if (restoredScreen === 'generating' && !restoredRequestId) { restoredScreen = blob ? 'confirm' : 'camera'; notice = 'Permintaan sebelumnya belum tercatat. Periksa foto sebelum mencoba lagi.' }
       }
@@ -178,7 +177,7 @@ function App() {
     photoUrlRef.current = nextUrl || null
     setPhoto(nextUrl)
   }
-  function begin() { snapshotRef.current = null; clearSnapshot(); void removePhoto(sessionIdRef.current).catch(() => {}); sessionIdRef.current = crypto.randomUUID(); setRequestId(null); stopCamera(); setResult(null); replacePhoto(null); setPhotoFile(null); setSceneId(null); setPeople(null); setCharacterId(null); go('scene') }
+  function begin() { snapshotRef.current = null; clearSnapshot(); void removePhoto(sessionIdRef.current).catch(() => {}); sessionIdRef.current = crypto.randomUUID(); setRequestId(null); stopCamera(); setResult(null); replacePhoto(null); setPhotoFile(null); setSceneId(null); setPeople(null); setCharacterId(null); go('character') }
   function chooseScene(id) {
     const selected = scenes.find((item) => item.id === id)
     if (!selected) return
@@ -338,8 +337,8 @@ function App() {
 
   return <div className="app-shell">
     {screen === 'home' && <Home onStart={begin} onGallery={openGallery} />}
-    {screen === 'scene' && <ScenePicker scene={scene} onSelect={chooseScene} onNext={() => { if (scene) go('character') }} onBack={newSession} />}
-    {screen === 'character' && <CharacterPicker scene={scene} character={character} onSelect={(id) => { if (id !== characterId) setRequestId(null); setCharacterId(id) }} onNext={() => { if (scene && character) go('camera') }} onBack={() => go('scene')} />}
+    {screen === 'scene' && <ScenePicker scene={scene} character={character} onSelect={chooseScene} onNext={() => { if (scene && character) go('camera') }} onBack={() => go('character')} />}
+    {screen === 'character' && <CharacterPicker character={character} onSelect={(id) => { if (id !== characterId) { setRequestId(null); setSceneId(null) }; setCharacterId(id) }} onNext={() => { if (character) go('scene') }} onBack={newSession} />}
     {screen === 'camera' && <CameraScreen people={people} onPeople={(value) => { setRequestId(null); setPeople(value) }} videoRef={videoRef} cameraReady={cameraReady} onStart={startCamera} onStop={stopCamera} onCapture={capturePhoto} onBack={() => { stopCamera(); go('character') }} error={error || generationNotice} />}
     {screen === 'confirm' && <ConfirmScreen people={people} photo={photo} scene={scene} character={character} onBack={() => go('camera')} onGenerate={generate} error={error} />}
     {screen === 'generating' && <GeneratingScreen photo={photo} notice={generationNotice} onBack={() => { generateControllerRef.current?.abort(); generateControllerRef.current = null; setIsBusy(false); go(photoFile ? 'confirm' : 'camera') }} />}
@@ -356,41 +355,62 @@ function LogoStrip() {
 }
 
 function Home({ onStart, onGallery }) {
-  const [activeImage, setActiveImage] = useState(0)
+  const [galleryItems, setGalleryItems] = useState([])
+  const [galleryError, setGalleryError] = useState(false)
+  const galleryRef = useRef(null)
   useEffect(() => {
-    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return undefined
-    const timer = window.setInterval(() => {
-      if (!document.hidden) setActiveImage((index) => (index + 1) % characters.length)
-    }, 6000)
-    return () => window.clearInterval(timer)
+    let cancelled = false
+    fetch('/api/gallery?limit=8').then((response) => response.ok ? response.json() : Promise.reject(new Error('gallery'))).then((payload) => {
+      if (!cancelled) setGalleryItems(Array.isArray(payload.items) ? payload.items.slice(0, 8) : [])
+    }).catch(() => { if (!cancelled) setGalleryError(true) })
+    return () => { cancelled = true }
   }, [])
+  useEffect(() => {
+    if (galleryItems.length < 2 || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return undefined
+    const timer = window.setInterval(() => {
+      const element = galleryRef.current
+      if (!element || document.hidden) return
+      const next = element.scrollTop + element.clientHeight * .72
+      if (next + element.clientHeight >= element.scrollHeight - 12) element.scrollTo({ top: 0, behavior: 'smooth' })
+      else element.scrollTo({ top: next, behavior: 'smooth' })
+    }, 4500)
+    return () => window.clearInterval(timer)
+  }, [galleryItems.length])
   return <main className="home screen-content">
     <section className="hero-copy">
       <LogoStrip />
       <p className="eyebrow">Photobooth AI · Museum R.A. Kartini, Rembang</p>
-      <h1>Jadi bagian dari<br /><em>kisah Kartini.</em></h1>
-      <p className="intro">Berfoto bersama Kartini dan tokoh di sekitarnya. Pilih suasananya, ambil foto, lalu bawa pulang kenanganmu.</p>
+      <h1>Hadir dalam<br /><em>kisah Kartini.</em></h1>
+      <p className="intro">Berfoto bersama tokoh pilihanmu di Museum R.A. Kartini. Pilih tokoh, tentukan tempatnya, lalu bawa pulang kenanganmu.</p>
       <div className="home-actions"><button className="button primary" onClick={onStart}>Mulai berfoto <span>→</span></button><button className="button outline gallery-button" onClick={onGallery}>Lihat galeri <span>↗</span></button></div>
       <div className="home-note"><span className="ornament">✦</span><span>Sendiri atau bersama · Langsung ambil foto<br />Pindai QR untuk menyimpan hasil ke ponsel.</span></div>
+      <div className="home-museum-art"><img src="/assets/backgrounds/gerbang.webp" alt="Gerbang Museum R.A. Kartini Rembang" /></div>
     </section>
-    <section className="hero-visual" aria-label="Contoh foto bersama tokoh museum"><div className="hero-image">{characters.map((item, index) => <img key={item.id} className={index === activeImage ? 'active' : ''} src={item.image} alt={index === activeImage ? `Contoh foto bersama ${item.name}` : ''} aria-hidden={index !== activeImage} />)}</div></section>
+    <section className="home-gallery" aria-label="Galeri foto terbaru">
+      <div className="home-gallery-heading"><span>GALERI TERBARU</span><small>{galleryItems.length ? `${galleryItems.length} kenangan` : 'Kenangan museum'}</small></div>
+      <div className="home-gallery-scroll" ref={galleryRef}>
+        {galleryItems.map((item, index) => <img key={`${item.thumbnailUrl}-${index}`} src={item.thumbnailUrl} alt={`Foto kenangan museum ${index + 1}`} />)}
+        {!galleryItems.length && <div className="home-gallery-empty">{galleryError ? 'Galeri sedang disiapkan.' : 'Kenangan baru akan tampil di sini.'}</div>}
+      </div>
+    </section>
   </main>
 }
 
-function ScenePicker({ scene, onSelect, onNext, onBack }) {
+function ScenePicker({ scene, character, onSelect, onNext, onBack }) {
+  const available = scenes.filter((item) => character?.sceneIds?.includes(item.id) ?? item.characterIds.includes(character?.id))
   return <main className="flow screen-content picker-screen scene-screen">
-    <FlowHeading kicker="01 / PILIH TEMPAT" title={<>Di mana kisahmu <em>dimulai?</em></>} copy="Pilih suasana untuk foto kenanganmu." />
-    <div className="scene-grid">{scenes.map((item) => <button aria-pressed={scene?.id === item.id} className={`scene-card ${scene?.id === item.id ? 'selected' : ''}`} key={item.id} onClick={() => onSelect(item.id)}><img src={item.image} alt="" /><span className="scene-overlay" /><span className="scene-info"><strong>{item.name}</strong><span>{item.description}</span></span><span className="selection-check" aria-hidden="true">{scene?.id === item.id ? '✓' : '+'}</span></button>)}</div>
-    <div className="flow-actions"><BackButton onClick={onBack} /><p className="selection-summary">{scene?.name || 'Pilih satu tempat'}</p><button className="button primary" onClick={onNext} disabled={!scene}>Pilih tokoh <span>→</span></button></div>
+    <FlowHeading kicker="02 / PILIH TEMPAT" title={<>Di mana kisahmu <em>dimulai?</em></>} copy={`Pilih suasana untuk berfoto bersama ${character?.name || 'tokoh pilihanmu'}.`} />
+    <div className="scene-grid">{available.map((item) => <button aria-pressed={scene?.id === item.id} className={`scene-card ${scene?.id === item.id ? 'selected' : ''}`} key={item.id} onClick={() => onSelect(item.id)}><img src={item.image} alt="" /><span className="scene-overlay" /><span className="scene-info"><strong>{item.name}</strong><span>{item.description}</span></span><span className="selection-check" aria-hidden="true">{scene?.id === item.id ? '✓' : '+'}</span></button>)}</div>
+    <div className="flow-actions"><BackButton onClick={onBack} /><p className="selection-summary">{scene?.name || 'Pilih satu tempat'}</p><button className="button primary" onClick={onNext} disabled={!scene}>Lanjut ke foto <span>→</span></button></div>
   </main>
 }
 
-function CharacterPicker({ scene, character, onSelect, onNext, onBack }) {
-  const available = characters.filter((item) => scene?.characterIds.includes(item.id))
+function CharacterPicker({ character, onSelect, onNext, onBack }) {
+  const available = characters
   return <main className="flow screen-content picker-screen character-screen">
-    <FlowHeading kicker="02 / PILIH TOKOH" title={<>Siapa <em>teman fotomu?</em></>} copy={`Pilih tokoh yang akan menemanimu di ${scene?.name || 'tempat pilihanmu'}.`} />
+    <FlowHeading kicker="01 / PILIH TOKOH" title={<>Siapa <em>teman fotomu?</em></>} copy="Pilih satu tokoh yang akan menemanimu dalam foto kenangan." />
     <div className="character-grid">{available.map((item) => <button aria-pressed={character?.id === item.id} className={`character-card ${character?.id === item.id ? 'selected' : ''}`} onClick={() => onSelect(item.id)} key={item.id}><img src={item.reference} alt="" /><span className="character-info"><strong>{item.name}</strong><small>{item.role}</small></span><span className="selection-check" aria-hidden="true">{character?.id === item.id ? '✓' : '+'}</span></button>)}</div>
-    <div className="flow-actions"><BackButton onClick={onBack} /><p className="selection-summary">{character?.name || 'Pilih satu tokoh'}</p><button className="button primary" onClick={onNext} disabled={!character}>Lanjut ke kamera <span>→</span></button></div>
+    <div className="flow-actions"><BackButton onClick={onBack} /><p className="selection-summary">{character?.name || 'Pilih satu tokoh'}</p><button className="button primary" onClick={onNext} disabled={!character}>Pilih tempat <span>→</span></button></div>
   </main>
 }
 
@@ -413,7 +433,6 @@ function CameraScreen({ people, onPeople, videoRef, cameraReady, onStart, onStop
     <fieldset className="capture-people" disabled={countdown !== null}>
       <legend>Jumlah pengunjung <small>opsional</small></legend>
       <div className="capture-people-options">{[null, 1, 2, 3, 4].map((count) => <button type="button" key={count ?? 'photo'} aria-pressed={people === count} aria-label={count === null ? 'Ikuti jumlah orang di foto' : `${count} pengunjung`} onClick={() => onPeople(count)}>{count === null ? 'Ikuti foto' : count}</button>)}</div>
-      <label className="capture-group-select">Grup lebih besar<select aria-label="Jumlah pengunjung lebih dari empat" value={people > 4 ? people : ''} onChange={(event) => onPeople(Number(event.target.value))}><option value="" disabled>5 orang atau lebih</option>{Array.from({ length: MAX_VISITORS - 4 }, (_, index) => index + 5).map((count) => <option key={count} value={count}>{count} pengunjung</option>)}</select></label>
       <p>Tidak termasuk tokoh pilihanmu.</p>
     </fieldset>
   </FlowHeading><div className="camera-stage"><video ref={videoRef} autoPlay playsInline muted /><div className="camera-guide"><span /><span /><span /><span /></div>{countdown !== null && <div className="camera-countdown" aria-live="assertive">{countdown}</div>}<div className="camera-hint">{cameraReady ? 'Kamera siap · pastikan wajah terlihat jelas' : 'Menunggu izin kamera…'}</div></div><div className="flow-footer">{error && <ErrorMessage text={error} />}<div className="camera-actions"><BackButton onClick={onBack} /><button className="button primary capture-button" onClick={captureWithCountdown} disabled={!cameraReady || countdown !== null}>{countdown !== null ? `Bersiap… ${countdown}` : 'Ambil foto'} <span>◉</span></button>{!cameraReady && <button className="button secondary camera-start" onClick={onStart}>Aktifkan kamera <span>↗</span></button>}</div></div></main>

@@ -2,6 +2,21 @@
 
 Tanggal pemeriksaan awal: 22 Oktober 2026.
 
+## Beranda, urutan pilihan, dan batas grup — 27 Oktober 2026
+
+- Beranda dirapikan menjadi dua kolom: teks, empat logo dengan urutan yang sama,
+  dan ilustrasi gerbang di kiri; galeri hasil terbaru di kanan.
+- Galeri beranda menampilkan maksimal delapan foto dan bergulir otomatis secara
+  looping. Reduced motion menghentikan pengguliran otomatis.
+- Alur kiosk sekarang **Tokoh → Tempat → Foto → Cek foto → Hasil QR**. Pilihan
+  tempat memakai metadata `sceneIds` dari tokoh yang dipilih, dan tidak ada
+  pilihan otomatis pada sesi baru.
+- Jumlah pengunjung bersifat opsional, tidak menghitung tokoh, dan dibatasi
+  maksimal empat pilihan manual: 1, 2, 3, atau 4. Opsi `Ikuti foto` tetap
+  tersedia untuk menyerahkan acuan jumlah kepada model.
+- Validasi terakhir: build produksi lulus, 29 tes Node lulus, serta 18 skenario
+  browser lulus dengan 22 screenshot pada desktop dan perangkat portrait.
+
 ## Setup domain dengan perintah pendek — 23 Oktober 2026
 
 `bash deploy/domain.sh` memasang `fotokartinirembang.com` melalui gateway Caddy
@@ -49,7 +64,9 @@ Ringkasan browser: `docs/audit-2026-10-23-results.json`.
   memulai home. Tab baru tidak mengambil alih sesi tab lain.
 - Status SQLite + ID/fingerprint generasi memungkinkan recovery tanpa mengulang
   provider pada retry/refresh request yang sama. Restart tidak auto-regenerate.
-- Pilihan manual diperluas dari 1–3 menjadi 1–20, tetap opsional. Semua 21
+- Pada audit historis, pilihan manual sempat diperluas dari 1–4 menjadi 1–20.
+  Implementasi aktif sekarang dibatasi kembali ke 1–4 sesuai batas konsistensi
+  wajah. Semua 21
   kombinasi tokoh/tempat diuji. Konkurensi saat cooldown dan token admin Unicode
   juga diperbaiki. Status email yang sudah antre/sent dipulihkan setelah refresh.
 - `npm run check`, syntax server/session/runner, `git diff --check`, dan **27 tes
@@ -214,7 +231,7 @@ Verifikasi dengan kamera/provider simulasi:
 - Browser 1366×768 dan mobile 390×844: pemilihan jumlah atau melewatinya,
   konfirmasi, ambil ulang, payload multipart, hasil QR, dan reset lulus.
 - Kamera desktop muat tanpa scroll; kedua ukuran tanpa overflow horizontal.
-- API menerima tanpa jumlah maupun 1–3; menolak 0, 4, negatif, pecahan, teks,
+- API menerima tanpa jumlah maupun 1–4; menolak 0, 5, negatif, pecahan, teks,
   string kosong, serta data tamu legacy yang tidak cocok.
 - Prompt provider sesuai jumlah yang dipilih. Tidak ada record tamu palsu.
 - `npm run check`, syntax server, dan `git diff --check` lulus.
@@ -223,7 +240,8 @@ Belum dilakukan pengujian generasi AI berbayar/perangkat fisik pada revisi ini.
 
 ## Revisi alur tanpa formulir — 23 Oktober 2026
 
-Alur aktif: **Tempat → Tokoh → Foto → Cek foto → Hasil QR**. Pemilihan tempat dan
+Alur historis: **Tempat → Tokoh → Foto → Cek foto → Hasil QR**. Implementasi aktif
+sekarang memakai **Tokoh → Tempat → Foto → Cek foto → Hasil QR**. Pemilihan tempat dan
 tokoh berada di layar terpisah. Form nama, jumlah pengunjung, dan jenis kelamin
 dihapus, termasuk state dan field multipart dari kiosk. Prompt meminta model
 mempertahankan seluruh orang dalam foto sumber beserta jumlah dan urutannya.

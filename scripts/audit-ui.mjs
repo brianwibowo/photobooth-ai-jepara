@@ -96,10 +96,10 @@ async function context(width = 1366, height = 768, media = 'ready') {
   }
   const camera = async () => {
     await page.getByRole('button', { name: 'Mulai berfoto' }).click()
-    await page.locator('.scene-card').nth(1).click()
-    await page.getByRole('button', { name: 'Pilih tokoh' }).click()
     await page.locator('.character-card').nth(6).click()
-    await page.getByRole('button', { name: 'Lanjut ke kamera' }).click()
+    await page.getByRole('button', { name: 'Pilih tempat' }).click()
+    await page.locator('.scene-card').nth(1).click()
+    await page.getByRole('button', { name: 'Lanjut ke foto' }).click()
   }
   const capture = async (n) => {
     const data = 'data:image/jpeg;base64,' + (await fixture(n)).toString('base64')
@@ -125,28 +125,25 @@ async function check(name, run) {
 }
 
 try {
-  for (const { n, width, height } of [{ n: 1, width: 1366, height: 768 }, { n: 3, width: 1366, height: 768 }, { n: 4, width: 1920, height: 1080 }, { n: 6, width: 1366, height: 768 }, { n: 8, width: 1366, height: 768 }, { n: 1, width: 390, height: 844 }, { n: 6, width: 390, height: 844 }, { n: 6, width: 1080, height: 1920 }]) {
+  for (const { n, width, height } of [{ n: 1, width: 1366, height: 768 }, { n: 2, width: 1920, height: 1080 }, { n: 3, width: 1366, height: 768 }, { n: 4, width: 1366, height: 768 }, { n: 1, width: 390, height: 844 }, { n: 3, width: 390, height: 844 }, { n: 4, width: 1080, height: 1920 }]) {
     const f = await context(width, height)
     const p = f.page
     group = n; hold = true; fail = false
     try {
       await check(`refresh/group-${n}/${width}x${height}`, async () => {
         await p.getByRole('button', { name: 'Mulai berfoto' }).click()
-        await f.reload('.scene-screen')
-        assert.equal(await p.locator('.scene-card[aria-pressed=true]').count(), 0)
-        assert.equal(await p.getByRole('button', { name: 'Pilih tokoh' }).isDisabled(), true)
-        await p.locator('.scene-card').nth(1).click(); await f.reload('.scene-screen')
-        assert.equal(await p.locator('.scene-card[aria-pressed=true]').count(), 1)
-        await p.getByRole('button', { name: 'Pilih tokoh' }).click()
-        assert.equal(await p.getByRole('button', { name: 'Lanjut ke kamera' }).isDisabled(), true)
+        await f.reload('.character-screen')
+        assert.equal(await p.locator('.character-card[aria-pressed=true]').count(), 0)
+        assert.equal(await p.getByRole('button', { name: 'Pilih tempat' }).isDisabled(), true)
         await p.locator('.character-card').nth(6).click(); await f.reload('.character-screen')
         assert.equal(await p.locator('.character-card[aria-pressed=true]').count(), 1)
-        await p.getByRole('button', { name: 'Lanjut ke kamera' }).click()
-        if (n <= 4) await p.getByRole('button', { name: `${n} pengunjung`, exact: true }).click()
-        else await p.getByLabel('Jumlah pengunjung lebih dari empat').selectOption(String(n))
+        await p.getByRole('button', { name: 'Pilih tempat' }).click()
+        await p.locator('.scene-card').nth(1).click(); await f.reload('.scene-screen')
+        assert.equal(await p.locator('.scene-card[aria-pressed=true]').count(), 1)
+        await p.getByRole('button', { name: 'Lanjut ke foto' }).click()
+        await p.getByRole('button', { name: `${n} pengunjung`, exact: true }).click()
         await f.reload('.camera-screen')
-        if (n <= 4) assert.equal(await p.getByRole('button', { name: `${n} pengunjung`, exact: true }).getAttribute('aria-pressed'), 'true')
-        else assert.equal(await p.getByLabel('Jumlah pengunjung lebih dari empat').inputValue(), String(n))
+        assert.equal(await p.getByRole('button', { name: `${n} pengunjung`, exact: true }).getAttribute('aria-pressed'), 'true')
         await f.record(`group-${n}-camera`)
         await f.capture(n)
         const hash = () => p.locator('.photo-preview img').evaluate(async (i) => [...new Uint8Array(await crypto.subtle.digest('SHA-256', await (await fetch(i.src)).arrayBuffer()))].join(','))
@@ -223,10 +220,10 @@ try {
       await check('result/selected-museum-long-figure-name-and-unique-download', async () => {
         group = 1; hold = false; fail = false
         await p.getByRole('button', { name: 'Mulai berfoto' }).click()
-        await p.locator('.scene-card').nth(0).click()
-        await p.getByRole('button', { name: 'Pilih tokoh' }).click()
         await p.locator('.character-card').nth(1).click()
-        await p.getByRole('button', { name: 'Lanjut ke kamera' }).click()
+        await p.getByRole('button', { name: 'Pilih tempat' }).click()
+        await p.locator('.scene-card').nth(0).click()
+        await p.getByRole('button', { name: 'Lanjut ke foto' }).click()
         await f.capture(1)
         await p.getByRole('button', { name: 'Buat foto kenangan' }).click()
         await p.locator('.result').waitFor()
@@ -277,10 +274,10 @@ try {
     const f = await context()
     try {
       await check('negative/missing-cached-photo-and-provider-failure', async () => {
-        group = 4; await f.camera(); await f.capture(4)
+        group = 2; await f.camera(); await f.capture(2)
         await f.page.evaluate(async () => { await new Promise((resolve, reject) => { const r = indexedDB.open('museum-photobooth-photos', 1); r.onsuccess = () => { const db = r.result, tx = db.transaction('photos', 'readwrite'); tx.objectStore('photos').clear(); tx.oncomplete = () => { db.close(); resolve() } }; r.onerror = reject }) })
         await f.reload('.camera-screen'); await f.page.getByRole('alert').waitFor()
-        await f.capture(4); fail = true; hold = false
+        await f.capture(2); fail = true; hold = false
         await f.page.getByRole('button', { name: 'Buat foto kenangan' }).click()
         await f.page.getByRole('alert').waitFor(); assert.equal(await f.page.locator('.confirm-screen').count(), 1)
         await f.reload('.confirm-screen'); fail = false
@@ -319,7 +316,7 @@ try {
     const f = await context()
     try {
       await check('negative/lost-generation-response-recovers-without-resending', async () => {
-        group = 6; hold = false; await f.camera(); await f.capture(6)
+        group = 3; hold = false; await f.camera(); await f.capture(3)
         const initialCalls = calls.length
         await f.page.route('**/api/generate', async (route) => { await route.fetch(); await route.fulfill({ status: 200, contentType: 'text/html', body: 'Proxy response unavailable' }) })
         await f.page.getByRole('button', { name: 'Buat foto kenangan' }).click()
@@ -334,7 +331,7 @@ try {
     const f = await context()
     try {
       await check('negative/status-network-error-after-refresh', async () => {
-        group = 4; hold = true; await f.camera(); await f.capture(4)
+        group = 2; hold = true; await f.camera(); await f.capture(2)
         const initialCalls = calls.length
         await f.page.getByRole('button', { name: 'Buat foto kenangan' }).click()
         for (let i = 0; i < 100 && calls.length === initialCalls; i += 1) await new Promise((resolve) => setTimeout(resolve, 10))
