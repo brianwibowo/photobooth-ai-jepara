@@ -15,6 +15,9 @@ for (const asset of paths) {
     issues.push(`Path aset tidak valid: ${asset}`)
     continue
   }
+  if (asset.startsWith('/assets/tokoh_pahlawan/') && asset.toLowerCase().endsWith('.png')) {
+    issues.push(`Preview tokoh harus memakai WebP: ${asset}`)
+  }
   try { await access(fileURLToPath(new URL(`../public${asset}`, import.meta.url))) }
   catch { issues.push(`Aset tidak ditemukan: ${asset}`) }
 }

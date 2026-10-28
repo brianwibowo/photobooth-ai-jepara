@@ -336,7 +336,7 @@ function App() {
   if (!hydrated) return <main className="generating screen-content"><p role="status">Memulihkan sesi…</p></main>
 
   return <div className="app-shell">
-    {screen === 'home' && <Home onStart={begin} />}
+    {screen === 'home' && <Home onStart={begin} onGallery={openGallery} />}
     {screen === 'scene' && <ScenePicker scene={scene} character={character} onSelect={chooseScene} onNext={() => { if (scene && character) go('camera') }} onBack={() => go('character')} />}
     {screen === 'character' && <CharacterPicker character={character} onSelect={(id) => { if (id !== characterId) { setRequestId(null); setSceneId(null) }; setCharacterId(id) }} onNext={() => { if (character) go('scene') }} onBack={newSession} />}
     {screen === 'camera' && <CameraScreen people={people} onPeople={(value) => { setRequestId(null); setPeople(value) }} videoRef={videoRef} cameraReady={cameraReady} onStart={startCamera} onStop={stopCamera} onCapture={capturePhoto} onBack={() => { stopCamera(); go('character') }} error={error || generationNotice} />}
@@ -354,7 +354,7 @@ function LogoStrip() {
   return <div className="logo-strip" aria-label="Museum R.A. Kartini dan mitra">{logos.map((logo) => <img key={logo.src} src={logo.src} alt={logo.alt} />)}</div>
 }
 
-function Home({ onStart }) {
+function Home({ onStart, onGallery }) {
   const storyViewportRef = useRef(null)
   useEffect(() => {
     let frame
@@ -367,7 +367,9 @@ function Home({ onStart }) {
       const step = firstCard.getBoundingClientRect().height + gap
       const elapsed = Math.min(64, now - last)
       last = now
-      viewport.scrollTop += elapsed * 0.035
+      // Keep the editorial strip visibly moving while leaving enough time to
+      // read each card. The old 35 px/s pace felt stalled on the kiosk.
+      viewport.scrollTop += elapsed * 0.08
       const loopDistance = step * homeStories.length
       if (loopDistance > 0 && viewport.scrollTop >= loopDistance) viewport.scrollTop -= loopDistance
       frame = window.requestAnimationFrame(tick)
@@ -379,10 +381,13 @@ function Home({ onStart }) {
     <section className="hero-copy">
       <div className="home-title"><div className="home-eyebrow">PHOTOBOOTH AI</div><div className="home-title-top"><span>Hadir dalam</span><img className="home-brand" src="/assets/logo/logo-museum.webp" alt="Museum R.A. Kartini Rembang" /></div><em>Kisah Kartini</em><div className="home-title-rule" aria-hidden="true"><span>✦</span></div></div>
       <div className="home-museum-art"><img src="/assets/backgrounds/gerbang.webp" alt="Gerbang Museum R.A. Kartini Rembang" /></div>
-      <button className="home-start" onClick={onStart}>MULAI <span aria-hidden="true">▶</span></button>
+      <div className="home-actions">
+        <button className="home-start" onClick={onStart}>MULAI <span aria-hidden="true">▶</span></button>
+        <button className="home-gallery" onClick={onGallery}>Lihat Galeri <span aria-hidden="true">↗</span></button>
+      </div>
     </section>
     <section className="home-static-catalog" aria-label="Pilihan kisah R.A. Kartini">
-      <div className="home-story-viewport" ref={storyViewportRef}><div className="home-story-track">{[...homeStories, ...homeStories].map((story, index) => <div className="home-story-card" key={`${story.id}-${index}`}><img src={story.images[0]} alt={story.alt} /></div>)}</div></div>
+      <div className="home-story-viewport" ref={storyViewportRef}><div className="home-story-track">{[...homeStories, ...homeStories].map((story, index) => <div className="home-story-card" key={`${story.id}-${index}`}><img src={story.images[0]} alt={story.alt} decoding="async" /></div>)}</div></div>
     </section>
   </main>
 }

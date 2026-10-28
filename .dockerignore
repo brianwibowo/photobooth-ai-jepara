@@ -12,7 +12,8 @@
 !server/**
 !public/
 !public/**
-# The UI uses the character PNGs as fixed previews for the home running strip
-# and the character-specific activity/place cards. Keep them in the image.
+# The UI uses optimized WebP derivatives for previews. Keep the original PNG
+# sources out of the production image so the first load stays small.
+public/assets/tokoh_pahlawan/**/*.png
 public/assets/tokoh_pahlawan/**/referensi/**
 public/assets/**/.DS_Store

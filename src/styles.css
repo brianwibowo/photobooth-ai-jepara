@@ -52,9 +52,13 @@ h1 em, h2 em { color: var(--coral); font-weight: 500; }
 .home-title-rule span { position: absolute; right: -2px; bottom: -13px; padding-left: 8px; color: #e5c981; background: #fff; font-size: 24px; line-height: 1; }
 .home-museum-art { width: min(100%, 900px); margin-top: clamp(14px, 2.5vh, 32px); }
 .home-museum-art img { display: block; width: 100%; aspect-ratio: 1.8 / 1; object-fit: contain; object-position: left center; mix-blend-mode: multiply; }
-.home-start { display: inline-flex; align-items: center; justify-content: space-between; gap: 28px; min-width: 190px; min-height: 56px; margin-top: clamp(10px, 2vh, 22px); padding: 12px 22px 12px 34px; border: 4px solid #f2a23a; border-radius: 999px; background: #2caa20; color: #fff; font-size: clamp(20px, 1.7vw, 30px); font-weight: 800; letter-spacing: .02em; box-shadow: 0 2px 0 rgba(128, 73, 10, .18); }
+.home-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 14px; margin-top: clamp(10px, 2vh, 22px); }
+.home-start { display: inline-flex; align-items: center; justify-content: space-between; gap: 28px; min-width: 190px; min-height: 56px; margin-top: 0; padding: 12px 22px 12px 34px; border: 4px solid #f2a23a; border-radius: 999px; background: #2caa20; color: #fff; font-size: clamp(20px, 1.7vw, 30px); font-weight: 800; letter-spacing: .02em; box-shadow: 0 2px 0 rgba(128, 73, 10, .18); }
 .home-start:hover { background: #258f1b; }
 .home-start span { font-size: .9em; }
+.home-gallery { display: inline-flex; align-items: center; justify-content: space-between; gap: 20px; min-width: 190px; min-height: 56px; padding: 12px 22px 12px 26px; border: 2px solid var(--coral); border-radius: 999px; background: #f7e4dc; color: var(--coral); font-size: clamp(17px, 1.45vw, 24px); font-weight: 700; letter-spacing: .01em; box-shadow: 4px 4px 0 rgba(185, 103, 79, .16); }
+.home-gallery:hover { background: #f1d3c8; }
+.home-gallery span { font-size: 1.15em; }
 .home-static-catalog { min-width: 0; min-height: 0; height: 100%; padding-top: clamp(22px, 4vh, 56px); overflow: hidden; }
 .home-story-viewport { height: 100%; min-height: 0; overflow: hidden; }
 .home-story-track { display: flex; flex-direction: column; gap: clamp(14px, 1.5vw, 22px); }

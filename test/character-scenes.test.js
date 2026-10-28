@@ -18,9 +18,9 @@ test('Kartini has a fixed activity and place for every available scene', () => {
     'Area membatik di halaman museum',
     'Ruang pendidikan museum',
   ])
-  assert.equal(scenes[0].image, '/assets/tokoh_pahlawan/1_ra kartini/Kartini_1a.png')
-  assert.equal(scenes[1].image, '/assets/tokoh_pahlawan/1_ra kartini/Kartini_2.png')
-  assert.equal(scenes[2].image, '/assets/tokoh_pahlawan/1_ra kartini/Kartini_3a.png')
+  assert.equal(scenes[0].image, '/assets/tokoh_pahlawan/1_ra kartini/Kartini_1a.webp')
+  assert.equal(scenes[1].image, '/assets/tokoh_pahlawan/1_ra kartini/Kartini_2.webp')
+  assert.equal(scenes[2].image, '/assets/tokoh_pahlawan/1_ra kartini/Kartini_3a.webp')
   assert.equal(getSceneForCharacter('gerbang', kartini.id).background, '/assets/backgrounds/gerbang.webp')
 })
 
