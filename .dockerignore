@@ -10,6 +10,8 @@
 !src/**
 !server/
 !server/**
+!scripts/
+!scripts/check-assets.mjs
 !public/
 !public/**
 # Only active production assets live in public; raw revision sources stay

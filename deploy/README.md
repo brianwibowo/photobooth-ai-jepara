@@ -1,5 +1,27 @@
 # Deploy ke VPS dengan Docker
 
+## Memperbarui aplikasi pada domain yang sudah aktif
+
+`git pull` memperbarui checkout di VPS. Source, hasil build Vite, dan gambar
+aplikasi disalin ke Docker image saat build; container yang sedang berjalan
+tetap memakai image sebelumnya sampai dibangun dan dibuat ulang.
+
+Dari folder proyek yang sama di VPS:
+
+```bash
+git pull --ff-only
+docker compose config --quiet
+docker compose up -d --build --no-deps --wait --wait-timeout 90 app
+docker compose ps app
+```
+
+Perintah ini memperbarui service `app`, mempertahankan `.env`, override domain,
+dan volume data. Setup domain tidak perlu diulang. `docker compose restart`
+atau `bash deploy/domain.sh` tidak membangun image aplikasi baru. Setelah
+service healthy, muat ulang browser. Jika build gagal, periksa error pada
+output perintah build. Jika container gagal healthy, baca
+`docker compose logs --tail=80 app`.
+
 ## Domain fotokartinirembang.com pada VPS yang sudah berjalan
 
 Setelah A record domain dan `www` mengarah ke `139.190.100.249`, jalankan dari
