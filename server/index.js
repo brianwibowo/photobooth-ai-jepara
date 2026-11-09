@@ -9,7 +9,7 @@ import fs from 'node:fs/promises'
 import fsSync from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { characters, sceneCatalog, getCharacter, getSceneForCharacter } from '../src/data.js'
+import { characters, sceneCatalog, getCharacter, getSceneForCharacter, BACKGROUND_STYLES, DEFAULT_BACKGROUND_STYLE } from '../src/data.js'
 import { createPhotoEmailService } from './photo-email.js'
 import { buildGenerationPrompt, generationReferenceLabels } from './generation-prompt.js'
 import { createGenerationJobs } from './generation-jobs.js'
@@ -63,6 +63,8 @@ function createDatabase(dataDir) {
       thumbnail_file TEXT NOT NULL,
       scene_id TEXT NOT NULL,
       character_id TEXT NOT NULL,
+      background_style TEXT NOT NULL DEFAULT 'vintage',
+      manifest_json TEXT,
       provider TEXT NOT NULL DEFAULT 'unknown',
       is_public INTEGER NOT NULL DEFAULT 1,
       created_at TEXT NOT NULL,
@@ -87,6 +89,11 @@ function createDatabase(dataDir) {
   }
   try { db.exec('ALTER TABLE results ADD COLUMN continuation_used INTEGER NOT NULL DEFAULT 0') } catch (error) {
     if (!/duplicate column name/i.test(error.message)) throw error
+  }
+  for (const definition of ["background_style TEXT NOT NULL DEFAULT 'vintage'", 'manifest_json TEXT']) {
+    try { db.exec(`ALTER TABLE results ADD COLUMN ${definition}`) } catch (error) {
+      if (!/duplicate column name/i.test(error.message)) throw error
+    }
   }
   db.exec('CREATE TABLE IF NOT EXISTS schema_migrations (name TEXT PRIMARY KEY)')
   db.transaction(() => {
@@ -264,8 +271,8 @@ export function createApp(options = {}) {
 
   async function imageData(relativePath) {
     const buffer = await fs.readFile(path.join(root, relativePath))
-    const optimized = await sharp(buffer).resize({ width: 1024, withoutEnlargement: true }).jpeg({ quality: 92 }).toBuffer()
-    return { data: optimized.toString('base64'), mimeType: 'image/jpeg' }
+    const optimized = await sharp(buffer).resize({ width: 1536, withoutEnlargement: true }).jpeg({ quality: 92 }).toBuffer()
+    return { data: optimized.toString('base64'), mimeType: 'image/jpeg', sourceSha256: crypto.createHash('sha256').update(buffer).digest('hex') }
   }
 
   async function prepareGenerationReferences({ photoBuffer, character, scene }) {
@@ -278,14 +285,17 @@ export function createApp(options = {}) {
     }
     const visitor = await sharp(photoBuffer).rotate().resize({ width: 1536, withoutEnlargement: true }).jpeg({ quality: 88 }).toBuffer()
     const images = [{ data: visitor.toString('base64'), mimeType: 'image/jpeg' }, ...await Promise.all(required.map((asset) => imageData(path.join('public', asset))))]
-    const labels = generationReferenceLabels(character)
+    if (scene.backgroundSha256 && images.at(-1).sourceSha256 !== scene.backgroundSha256) {
+      throw Object.assign(new Error('Latar pilihan belum siap. Silakan hubungi petugas.'), { code: 'REFERENCE_CHANGED' })
+    }
+    const labels = generationReferenceLabels(character, scene)
     return images.map((image, index) => ({ ...image, label: labels[index] }))
   }
 
-  async function callGeminiModel({ model, apiKey, inputParts }) {
+  async function callGeminiModel({ model, apiKey, inputParts, aspectRatio }) {
     const response = await fetchImpl(`https://generativelanguage.googleapis.com/v1/models/${encodeURIComponent(model)}:generateContent`, {
       method: 'POST', headers: { 'content-type': 'application/json', 'x-goog-api-key': apiKey },
-      body: JSON.stringify({ contents: [{ role: 'user', parts: inputParts }], generationConfig: { responseModalities: ['TEXT', 'IMAGE'] } }),
+      body: JSON.stringify({ contents: [{ role: 'user', parts: inputParts }], generationConfig: { responseModalities: ['TEXT', 'IMAGE'], imageConfig: { aspectRatio } } }),
       signal: AbortSignal.timeout(timeoutMs),
     })
     const raw = await response.text()
@@ -301,11 +311,11 @@ export function createApp(options = {}) {
     return Buffer.from(image, 'base64')
   }
 
-  async function generateWithGemini({ photoBuffer, sceneId, characterId, people }) {
+  async function generateWithGemini({ photoBuffer, sceneId, characterId, backgroundStyle, people }) {
     const apiKey = process.env.GEMINI_API_KEY
     if (!apiKey) throw Object.assign(new Error('missing api key'), { code: 'MISSING_API_KEY' })
     const configuredModel = process.env.GEMINI_MODEL || DEFAULT_MODEL
-    const scene = getSceneForCharacter(sceneId, characterId)
+    const scene = getSceneForCharacter(sceneId, characterId, backgroundStyle)
     const character = characterMap[characterId] || getCharacter(characterId)
     const references = await prepareGenerationReferences({ photoBuffer, character, scene })
     const prompt = buildGenerationPrompt({ scene, character, people })
@@ -313,15 +323,15 @@ export function createApp(options = {}) {
       { text: prompt },
       ...references.flatMap(({ label, data, mimeType }) => [{ text: label }, { inline_data: { mime_type: mimeType, data } }]),
     ]
-    return await callGeminiModel({ model: configuredModel, apiKey, inputParts })
+    return await callGeminiModel({ model: configuredModel, apiKey, inputParts, aspectRatio: scene.outputAspectRatio })
   }
 
-  async function generateWithOpenRouter({ photoBuffer, sceneId, characterId, people }) {
+  async function generateWithOpenRouter({ photoBuffer, sceneId, characterId, backgroundStyle, people }) {
     const apiKey = process.env.OPENROUTER_API_KEY
     if (!apiKey) throw Object.assign(new Error('missing openrouter api key'), { code: 'MISSING_OPENROUTER_KEY' })
     const configuredModel = process.env.OPENROUTER_MODEL || process.env.AI_INFOGRAPHIC_MODEL || 'openai/gpt-image-2.5-flare'
 
-    const scene = getSceneForCharacter(sceneId, characterId)
+    const scene = getSceneForCharacter(sceneId, characterId, backgroundStyle)
     const character = characterMap[characterId] || getCharacter(characterId)
     const references = await prepareGenerationReferences({ photoBuffer, character, scene })
     const prompt = buildGenerationPrompt({ scene, character, people })
@@ -351,7 +361,7 @@ export function createApp(options = {}) {
           model: configuredModel,
           prompt: [prompt, ...references.map(({ label }) => label)].join('\n\n'),
           input_references: inputReferences,
-          aspect_ratio: '3:2',
+          aspect_ratio: scene.outputAspectRatio,
           quality: 'high',
           background: 'opaque',
           n: 1
@@ -378,6 +388,7 @@ export function createApp(options = {}) {
         body: JSON.stringify({
           model: configuredModel,
           modalities: ['image', 'text'],
+          image_config: { aspect_ratio: scene.outputAspectRatio },
           messages: [{ role: 'user', content: contentParts }]
         }),
         signal: AbortSignal.timeout(timeoutMs)
@@ -481,13 +492,16 @@ export function createApp(options = {}) {
     return Number.isFinite(expiry) && now().getTime() < expiry + (row.continuation_used ? 0 : RESULT_CONTINUE_GRACE_MS) && (!row.expires_at || Date.parse(row.expires_at) > now().getTime())
   }
   function resultPayload(row) {
-    const character = getCharacter(row.character_id)
-    const scene = getSceneForCharacter(row.scene_id, row.character_id)
+    const manifest = safeJson(row.manifest_json, null)
+    const character = manifest?.character || getCharacter(row.character_id)
+    // Old rows never recorded which background file was used. Keep their
+    // downloads usable without attaching today's remapped asset receipt.
+    const scene = manifest?.scene || { name: 'Pilihan tempat sebelumnya', location: 'Museum R.A. Kartini Rembang' }
     return {
       id: row.id,
       filename: resultFilename(row.id, path.extname(row.image_file) === '.webp' ? 'webp' : 'png'),
       character: { id: row.character_id, name: character.name },
-      scene: { id: row.scene_id, name: scene.name, location: scene.location, activity: scene.activity, place: scene.place },
+      scene: { id: row.scene_id, name: scene.name, location: scene.location, activity: scene.activity, place: scene.place, backgroundStyle: scene.backgroundStyle, backgroundId: scene.backgroundId, backgroundAssetId: scene.backgroundAssetId },
       imageUrl: `/api/download/${row.token}`,
       thumbnailUrl: `/api/gallery/image/${encodeURIComponent(row.thumbnail_file)}`,
       qrUrl: `${publicBaseUrl}/api/download/${row.token}`,
@@ -530,7 +544,9 @@ export function createApp(options = {}) {
     const imageError = await validateImage(req.file)
     if (imageError) return res.status(400).json({ error: imageError, code: 'PHOTO_INVALID', retryable: false })
     const { sceneId, characterId } = req.body
-    const scene = sceneMap[sceneId] ? getSceneForCharacter(sceneId, characterId) : null; const character = characterMap[characterId]
+    const backgroundStyle = req.body.backgroundStyle === undefined ? DEFAULT_BACKGROUND_STYLE : req.body.backgroundStyle
+    if (!BACKGROUND_STYLES.includes(backgroundStyle)) return res.status(400).json({ error: 'Pilih nuansa Vintage atau Warna.', code: 'BACKGROUND_STYLE_INVALID', retryable: false })
+    const scene = sceneMap[sceneId] ? getSceneForCharacter(sceneId, characterId, backgroundStyle) : null; const character = characterMap[characterId]
     const characterMayUseScene = character?.sceneIds?.includes(sceneId) ?? scene?.characterIds?.includes(characterId)
     if (!scene || !character || !characterMayUseScene) return res.status(400).json({ error: 'Adegan atau tokoh tidak valid.', code: 'CONFIG_INVALID', retryable: false })
     const people = req.body.people === undefined ? null : Number(req.body.people)
@@ -540,7 +556,7 @@ export function createApp(options = {}) {
     if (requestId && !generationJobs.validId(requestId)) return res.status(400).json({ error: 'ID permintaan tidak valid.', code: 'GENERATION_ID_INVALID' })
     res.set('Cache-Control', 'private, no-store')
     if (requestId) {
-      const fingerprint = crypto.createHash('sha256').update(req.file.buffer).update(JSON.stringify([sceneId, characterId, people, req.body.guests || null])).digest('hex')
+      const fingerprint = crypto.createHash('sha256').update(req.file.buffer).update(JSON.stringify([sceneId, characterId, people, req.body.guests || null, backgroundStyle])).digest('hex')
       const replay = generationJobs.reserve(requestId, fingerprint)
       if (replay) return res.status(replay.httpStatus).json(replay.payload)
     }
@@ -558,20 +574,20 @@ export function createApp(options = {}) {
         if (process.env.OPENROUTER_API_KEY) {
           try {
             console.log('Generating image using OpenRouter models chain...')
-            output = await (options.generateWithOpenRouter || generateWithOpenRouter)({ photoBuffer: req.file.buffer, sceneId, characterId, people, guests: guestList })
+            output = await (options.generateWithOpenRouter || generateWithOpenRouter)({ photoBuffer: req.file.buffer, sceneId, characterId, backgroundStyle, people, guests: guestList })
             provider = 'openrouter'
           } catch (orErr) {
             console.warn('OpenRouter generation failed:', orErr?.code || orErr?.message)
             if (process.env.GEMINI_API_KEY) {
               console.log('Falling back to Google Gemini direct...')
-              output = await (options.generateWithGemini || generateWithGemini)({ photoBuffer: req.file.buffer, sceneId, characterId, people, guests: guestList })
+              output = await (options.generateWithGemini || generateWithGemini)({ photoBuffer: req.file.buffer, sceneId, characterId, backgroundStyle, people, guests: guestList })
               provider = 'gemini'
             } else {
               throw orErr
             }
           }
         } else {
-          output = await (options.generateWithGemini || generateWithGemini)({ photoBuffer: req.file.buffer, sceneId, characterId, people, guests: guestList })
+          output = await (options.generateWithGemini || generateWithGemini)({ photoBuffer: req.file.buffer, sceneId, characterId, backgroundStyle, people, guests: guestList })
           provider = 'gemini'
         }
       } catch (error) {
@@ -606,8 +622,16 @@ export function createApp(options = {}) {
       const createdAt = now()
       const expiresAt = resultRetentionMs > 0 ? new Date(createdAt.getTime() + resultRetentionMs).toISOString() : null
       const downloadExpiresAt = new Date(createdAt.getTime() + downloadTtlMs).toISOString()
+      // Keep the actual selected asset IDs with the result. Later catalog
+      // revisions must not relabel a restored photo with a different location.
+      const manifest = JSON.stringify({
+        version: 'background-pairs-v2',
+        character: { id: character.id, name: character.name, faceAsset: character.reference, bodyAsset: character.bodyReference || null, revision: character.bodyReference ? '2026-11' : 'legacy' },
+        scene: { id: scene.id, name: scene.name, location: scene.location, activity: scene.activity, place: scene.place, backgroundStyle, backgroundId: scene.backgroundId, backgroundAssetId: scene.backgroundAssetId, backgroundSha256: scene.backgroundSha256, outputAspectRatio: scene.outputAspectRatio },
+        visitorCount: people,
+      })
       const resultId = db.transaction(() => {
-        const result = db.prepare('INSERT INTO results (token,image_file,thumbnail_file,scene_id,character_id,provider,is_public,created_at,expires_at,download_expires_at) VALUES (?,?,?,?,?,?,?,?,?,?)').run(token, imageFile, thumbFile, sceneId, characterId, provider, ['gemini', 'openrouter'].includes(provider) ? 1 : 0, createdAt.toISOString(), expiresAt, downloadExpiresAt)
+        const result = db.prepare('INSERT INTO results (token,image_file,thumbnail_file,scene_id,character_id,background_style,manifest_json,provider,is_public,created_at,expires_at,download_expires_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)').run(token, imageFile, thumbFile, sceneId, characterId, backgroundStyle, manifest, provider, ['gemini', 'openrouter'].includes(provider) ? 1 : 0, createdAt.toISOString(), expiresAt, downloadExpiresAt)
         const insertGuest = db.prepare('INSERT INTO guests (result_id,name,gender,created_at) VALUES (?,?,?,?)')
         guestList.forEach((guest) => insertGuest.run(result.lastInsertRowid, guest.name.trim().slice(0, 80), guest.gender, createdAt.toISOString()))
         if (requestId) generationJobs.finish(requestId, 200, { id: result.lastInsertRowid })

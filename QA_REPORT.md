@@ -2,7 +2,83 @@
 
 Tanggal pemeriksaan awal: 22 Oktober 2026.
 
-## Referensi wajah dan latar vintage — 9 November 2026
+## Tombol Mulai Foto dan variasi foto berjalan — 9 November 2026
+
+- Tombol utama beranda memakai teks **Mulai Foto**.
+- Strip berjalan memakai thumbnail galeri publik terbaru dan dilengkapi
+  referensi tujuh tokoh bila foto galeri masih sedikit, diselingi kesembilan
+  lokasi vintage. Seluruh frame ikut putaran, bukan hanya gambar pertama
+  dari tiga kelompok. Foto orang ditampilkan utuh tanpa crop wajah.
+- URL galeri beranda hanya menerima endpoint thumbnail publik; token PNG
+  privat tidak dirender. Galeri kosong/gagal tetap menampilkan tokoh dan latar.
+  Preferensi reduced motion menghentikan animasi.
+- Cek aset dan build produksi lulus. Audit beranda lulus pada 1366×768,
+  1080×1920 dan 390×844: tombol, galeri terisi/kosong, tujuh portrait, sembilan
+  latar, putaran melewati tiga kartu, reduced motion, semua gambar termuat,
+  tanpa overflow/error browser, serta tidak menampilkan token unduh privat.
+  Sembilan screenshot dan JSON tersimpan di `output/playwright/home/`.
+
+## Sembilan lokasi dengan nuansa Vintage/Warna — 9 November 2026
+
+- Delapan belas JPG latar terbaru dipindahkan ke
+  `assets/sources/backgrounds/{vintage,warna}/{id}.jpg`. SHA-256 sebelum/sesudah
+  pemindahan identik. Empat dokumen panduan asli disimpan tanpa perubahan byte
+  di [docs/asset-guidance](docs/asset-guidance/README.md), bersama catatan nama
+  sumber dan hash. Aplikasi tidak bergantung pada folder kiriman.
+- Kesembilan lokasi tersedia dalam dua nuansa di manifest `src/backgrounds.js`:
+  gerbang utama, pendopo, aula berkolom, ruang utama, ruang Kartini mengajar,
+  ruang keluarga, ruang makan keluarga, Taman Sari, dan dapur 1900-an. Katalog
+  memetakan 16 aktivitas ke lokasi tersebut, dengan preview dan input provider
+  berasal dari aset nuansa yang sama. Set aktif berisi 36 berkas produksi.
+- Vintage menjadi default sesi baru. Kontrol Vintage/Warna berada di layar
+  tempat; pilihan dipertahankan saat refresh dan ditampilkan pada konfirmasi
+  serta hasil. Lima pasangan wajah/tubuh terpilih tetap dipakai; Adhiningrat
+  dan Soesalit tetap memakai empat WebP sebelumnya.
+- Rebuild mempertahankan sumber JPG, tidak mengedit patung/diorama, serta
+  menghasilkan WebP maksimal lebar 1920 tanpa crop, stretch atau upscale.
+  Semua Vintage berukuran sumber 2752×1536; empat sumber Warna 1376×768 dan
+  lima lainnya 2752×1536. Manifest merekam hash sumber dan produksi. Sepuluh
+  WebP referensi tokoh hasil rebuild identik byte dengan versi sebelumnya.
+- `backgroundStyle` divalidasi API: `vintage` atau `warna`, default `vintage`;
+  nilai lain ditolak dengan `400 BACKGROUND_STYLE_INVALID` sebelum provider.
+  Nuansa masuk fingerprint retry. SQLite menyimpan nuansa serta snapshot tokoh,
+  lokasi, ID/hash aset dan jumlah opsional bersama hasil.
+- Prompt meminta mempertahankan arsitektur, furnitur, tulisan dan koleksi;
+  patung, diorama dan foto pajangan tetap benda mati. Warna memakai warna alami,
+  Vintage memakai warna hangat ringan tanpa menggelapkan wajah. Provider
+  diminta 16:9 sesuai sumber lebar sekitar 1,79:1; output A5 tetap 1240×874 dari
+  panduan belum diterapkan.
+- Rebuild, pemeriksaan hash sumber/produksi, dimensi/rasio, kesamaan sepuluh
+  WebP tokoh, build, dan **42 tes Node lulus**. Pemeriksaan API/akhir sesi
+  diulang setelah perbaikan metadata hasil lama: **11 tes lulus**. Hasil lama
+  tanpa manifest tetap dapat diunduh, dengan label netral tanpa menebak ID
+  background terbaru. Hash input latar diperiksa sebelum panggilan provider.
+- Audit browser lulus pada 1366×768, 1080×1920, dan 390×844: **96 pemilihan
+  adegan** (16 aktivitas × dua nuansa × tiga ukuran), 42 pemeriksaan tokoh/nuansa,
+  refresh/back, pembatalan receipt lama saat mengganti nuansa, semua gambar
+  termuat, dan nol error browser. Dua alur foto lengkap memakai API/provider
+  simulasi (Vintage/1 pengunjung dan Warna/4 pengunjung); caption, nuansa serta
+  ID aset tetap benar setelah refresh hasil. Ada 28 screenshot dan JSON di
+  `output/playwright/revisions/`. Layout juga diperiksa visual.
+- Folder kiriman `revisi_baru` sudah dihapus setelah 18 JPG dan empat DOCX
+  dipindahkan dengan verifikasi hash. Delapan WebP lama, delapan PNG sumber
+  lama dan satu prompt cleanup yang tergantikan ikut dihapus. Sumber baru,
+  referensi tokoh, dokumen panduan, dan hasil pengunjung tetap tersedia.
+- Batas implementasi: jalur aktif masih generasi/edit seluruh adegan.
+  Segmentasi, mask, komposit deterministik, deteksi jumlah otomatis, persetujuan
+  kurator, kontrol consent/penghapusan khusus dan efek pinggir kertas belum
+  dibuat. Hash sumber tidak membuktikan piksel background atau wajah hasil AI
+  tetap identik. Thumbnail galeri tetap publik; token PNG tetap privat dan
+  singkat sesuai perilaku aplikasi saat ini.
+- Belum ada uji AI nyata 1–4 pengunjung untuk menilai kemiripan, jumlah orang,
+  busana, proporsi, arsitektur, diorama dan hasil kedua nuansa. Pemeriksaan
+  simulasi tidak dapat dianggap memenuhi acceptance test visual tersebut.
+
+## Referensi wajah dan latar vintage awal — 9 November 2026 (historis)
+
+Bagian ini mencatat paket delapan latar awal sebelum penggantian oleh sembilan
+pasangan Vintage/Warna di atas. Path, dimensi dan hasil tes di bagian historis
+ini bukan kontrak atau bukti validasi paket latar terbaru.
 
 Pembersihan sesudah revisi menghapus 214 berkas aset publik yang tidak dirujuk
 serta 19 gambar alternatif revisi dan enam berkas metadata `.DS_Store` dari
@@ -12,10 +88,18 @@ untuk rebuild. Script preview lama ikut dihapus. Hasil pengunjung/galeri dan
 konfigurasi server tidak menjadi sasaran pembersihan ini.
 
 - Lima tokoh (Kartini, Sosrokartono, Kardinah, Roekmini, Sosroningrat) memakai
-  acuan wajah dan tubuh dari `0_Revisi`; referensi Adhiningrat dan Soesalit tetap.
+  masing-masing satu acuan wajah utama dan satu acuan tubuh terpilih; referensi
+  Adhiningrat dan Soesalit tetap. Sepuluh sumber JPG berada di
+  `assets/sources/characters/{id}/face.jpg` dan `body.jpg`. WebP produksinya
+  terintegrasi di folder masing-masing tokoh sebagai `reference-2026-11.webp`
+  dan `body-2026-11.webp`.
 - Delapan latar vintage teroptimasi menggantikan input lingkungan dan preview
   tempat. Ruang mengajar dibersihkan dari patung manusia memakai built-in
-  `image_gen`; sumber dan prompt disimpan di `output/revision-assets/`.
+  `image_gen`. Delapan PNG sumber dan prompt edit ruang mengajar berada di
+  `assets/sources/backgrounds/vintage/`; WebP yang dipakai aplikasi berada di
+  `public/assets/backgrounds/vintage/`. Rebuild tidak bergantung pada folder
+  kiriman revisi atau output sementara, dan tidak menyimpan salinan produksi
+  paralel di folder revisi.
 - Gemini dan kedua jalur OpenRouter mengirim foto pengunjung, wajah utama,
   tubuh tokoh yang sama bila tersedia, lalu lingkungan. Tes membandingkan byte
   input, urutan, label, dan kegagalan aman saat salah satu aset hilang.
@@ -25,11 +109,18 @@ konfigurasi server tidak menjadi sasaran pembersihan ini.
 - Pemilihan tempat tidak lagi membaca `characterIds` yang tidak ada pada adegan
   khusus. Kembali dari kamera menuju tempat dengan pilihan tersimpan. Beranda
   portrait/mobile diperbaiki agar gambar tidak menutupi judul/tombol.
-- `npm run check` dan **37 tes Node lulus**. Audit revisi lulus pada
+- Validasi sesudah penataan ke direktori utama: `npm run assets:revisions`,
+  `npm run check`, dan
+  **37 tes Node lulus**. Audit revisi lulus pada
   1366×768, 1080×1920, dan 390×844: **48 pemilihan tempat**, ketujuh tokoh di
   setiap ukuran, refresh/back, semua gambar termuat, nol error browser, dan satu
   alur kamera hingga hasil simulasi. Ada 17 screenshot serta JSON di
   `output/playwright/revisions/`; ulangi dengan `npm run audit:revisions`.
+- Seluruh 37 berkas sumber/produksi/prompt yang dipindahkan memiliki hash
+  identik dengan sebelum pemindahan, termasuk sesudah rebuild. Folder kiriman
+  revisi lama, folder produksi revisi terpisah, dan folder sumber output
+  sementara telah dihapus setelah kosong. Server lokal dimulai ulang memakai
+  path utama; 26 aset katalog dan favicon berhasil dimuat melalui HTTP.
 - Batas verifikasi: kamera, AI, dan SMTP pada tes memakai simulasi. Belum ada
   generasi AI nyata untuk menilai peningkatan kemiripan dan belum deploy ke VPS.
   Referensi aset dan prompt lengkap: [docs/reference-backgrounds.md](docs/reference-backgrounds.md).

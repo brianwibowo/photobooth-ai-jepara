@@ -1,72 +1,102 @@
 # Generation references — November 2026
 
-The active catalog uses the client-supplied `0_Revisi` portraits and vintage
-locations. The retained source set contains the ten selected portrait JPGs
-listed below and seven original background PNGs in `0_Revisi`, plus the cleaned
-teaching-room PNG and its editing prompt in `output/revision-assets/`.
-Derivatives are built with `npm run assets:revisions`, without generating or
-retouching any character's face. Unused portrait alternatives, the original
-teaching-room image containing statues, and obsolete production assets have
-been removed.
+The active catalog uses five revised characters and nine museum locations,
+each available in `vintage` and `warna` styles. Vintage is the default.
+The five characters each use one selected face portrait and one selected body
+image; the application does not send every alternative from the supplied set.
+All twenty-eight rebuild JPGs are kept under `assets/sources/`, separately from
+the optimized files served by the application. Derivatives are built with
+`npm run assets:revisions`, without generating or retouching a character's face.
+The latest background photographs retain their exhibits and dioramas; the asset
+build does not remove statues or regenerate architecture. Canonical source and
+production directories replace delivery copies and temporary output dependencies.
 
-| Character | Face source in `0_Revisi` | Body/clothing source |
+Each character's selected source pair is
+`assets/sources/characters/{id}/face.jpg` and `body.jpg`. The following original
+delivery names record provenance only; they are not paths used by the rebuild:
+
+| Character ID | Original selected face | Original selected body/clothing |
 | --- | --- | --- |
-| Kartini | `0_RA Kartini/8.jpg` | `0_RA Kartini/5.jpg` |
-| Sosrokartono | `1_Sosrokartono/4.jpg`, head/shoulder crop x520 y15 w900 h1200 | `1_Sosrokartono/5.jpg` |
-| Kardinah | `2_Kardinah/1.jpg` | `2_Kardinah/2.jpg` |
-| Roekmini | `3_Roekmini/f.jpg` | `3_Roekmini/a.jpg` |
-| Sosroningrat | `4_Sosroningrat/a.jpg` | `4_Sosroningrat/c.jpg` |
+| `kartini` | `0_RA Kartini/8.jpg` | `0_RA Kartini/5.jpg` |
+| `sosrokartono` | `1_Sosrokartono/4.jpg`, head/shoulder crop x520 y15 w900 h1200 | `1_Sosrokartono/5.jpg` |
+| `kardinah` | `2_Kardinah/1.jpg` | `2_Kardinah/2.jpg` |
+| `roekmini` | `3_Roekmini/f.jpg` | `3_Roekmini/a.jpg` |
+| `sosroningrat` | `4_Sosroningrat/a.jpg` | `4_Sosroningrat/c.jpg` |
 
-These ten production WebPs live in `public/assets/revisions-2026-11/characters/`
-as `{id}-face.webp` and `{id}-body.webp`. Face encoding uses WebP quality 94,
-body encoding quality 90; dimensions fit within the source without upscaling.
-Adhiningrat and Soesalit keep their previous image/reference files and identity
-prompts. Their two `display.webp` and two `reference.webp` files are the only
-remaining assets under `public/assets/tokoh_pahlawan/`; the old PNG scenes,
-reference-photo libraries and five replaced character sets have been removed.
+The ten production WebPs are integrated into each character's existing folder
+under `public/assets/tokoh_pahlawan/`, named `reference-2026-11.webp` and
+`body-2026-11.webp`:
+
+| Character ID | Production folder under `public/assets/tokoh_pahlawan/` |
+| --- | --- |
+| `kartini` | `1_ra kartini` |
+| `sosrokartono` | `5_sosrokartono` |
+| `kardinah` | `3_kardinah` |
+| `roekmini` | `4_roekmini` |
+| `sosroningrat` | `6_raden mas adipati ario sosroningrat` |
+
+Face encoding uses WebP quality 94, body encoding quality 90; dimensions fit
+within the source without upscaling. Adhiningrat and Soesalit retain the
+previous `display.webp` and `reference.webp` in their existing folders and their
+identity prompts. The old PNG scenes, reference-photo libraries and replaced
+character files have been removed.
 The client-selected face portrait is the identity authority; the body image
 supplies proportions and clothing, not another face to average in.
 
-Eight background WebPs live in `public/assets/revisions-2026-11/backgrounds/`.
-Seven retain their source 1240×874 dimensions. The teaching-room cleanup retains
-its generated 1494×1053 dimensions. Encoding/resizing preserves aspect ratios;
-the output prompt requests 3:2 with small edge extensions, never stretching.
-Together with the ten new character images, four unchanged character files
-and four logos, these form the 26-file active production set in `public/assets`.
-The old `backgrounds` and `scene-previews` directories and the obsolete
-`assets:previews` build command have been removed.
+Eighteen production background WebPs live in
+`public/assets/backgrounds/{vintage,warna}/{id}-2026-11-v2.webp`; their unmodified
+JPG sources live in `assets/sources/backgrounds/{vintage,warna}/{id}.jpg`.
+All nine Vintage sources are 2752×1536. Warna sources for `gerbang-utama`,
+`pendopo`, `ruang-makan-keluarga` and `dapur-1900an` are 1376×768; the other five
+are 2752×1536. Encoding uses WebP quality 94 and a maximum width of 1920, without
+upscaling, cropping, stretching or changing the source JPGs. Large inputs become
+1920×1072; smaller inputs retain 1376×768.
 
-| Activity | Background |
+`src/backgrounds.js` is generated deterministically by the asset build. Each
+location has a stable `id`, a display name and both style variants. A variant
+records its `assetId` (`bg-{id}-{style}-v2`), production URL, actual source
+dimensions, production `sha256` and original `sourceSha256`. These hashes identify
+the chosen source and encoded file. They do not prove that a generated result
+retains background pixels or human identities unchanged.
+
+The eighteen backgrounds, ten revised character images, four unchanged character
+files and four logos form the 36-file active production set in `public/assets`.
+The old eight-background PNG/WebP set and earlier cleaned teaching room are not
+inputs to the current build. The obsolete `assets:previews` command is removed.
+
+All nine locations are used by the current sixteen activities and home artwork:
+
+| Background ID | Activities using this location |
 | --- | --- |
-| Kartini greeting | `05-gerbang-utama.webp` |
-| Kartini batik | `04-taman-sari.webp` |
-| Kartini teaching | `07-ruang-mengajar-empty.webp` |
-| Adhiningrat sitting/walking, Roekmini entrance/terrace | `03-teras-museum.webp` |
-| Kardinah writing/serving | `08-ruang-makan.webp` |
-| Kardinah cooking | `06-dapur-1900an.webp` |
-| Sosrokartono reading/manuscripts, Sosroningrat gallery | `01-ruang-utama.webp` |
-| Soesalit dakon | `02-pendopo.webp` |
+| `gerbang-utama` | Kartini greeting; Roekmini portrait |
+| `pendopo` | Roekmini conversation; Soesalit dakon |
+| `aula-berkolom` | Adhiningrat walking; Roekmini welcoming; Sosroningrat explaining exhibits |
+| `ruang-utama` | Sosrokartono examining manuscripts; Sosroningrat portrait |
+| `ruang-kartini-mengajar` | Kartini teaching |
+| `ruang-keluarga` | Adhiningrat seated conversation; Sosrokartono reading |
+| `ruang-makan-keluarga` | Kardinah writing/arranging dishes; Kardinah serving |
+| `taman-sari` | Kartini batik |
+| `dapur-1900an` | Kardinah cooking |
 
-Activity props absent from a location, such as a small batik setup or reading
-table, are requested explicitly without replacing the supplied architecture.
-Door/terrace/pendopo descriptions match the new images. Scene cards and the
-home artwork use the same vintage locations; old group-example faces no longer
-appear in the selection UI. Stable scene IDs are preserved for saved sessions.
+The existing place screen includes a Vintage/Warna selector. Preview and provider
+input resolve from the same location/style variant. The selection survives
+refresh and is shown on confirmation and result screens; a new session defaults
+to Vintage. Home artwork uses the Vintage variants. Current scene IDs remain
+stable for saved sessions even where a displayed location name has changed.
 
-## Teaching-room cleanup
+Prompts ask for existing furniture, architecture and exhibit positions to remain
+unchanged; they no longer request a replacement room or extra reading table.
+Only small activity props, such as a handheld book or dakon board, are requested.
+The supplied teaching-room diorama and other statues, reliefs and portraits remain
+in the reference photographs as inanimate exhibits. They must not supply living
+cast members or become duplicated historical figures. This is a provider
+instruction, not a deterministic preservation guarantee.
 
-The supplied `07_Ruang_Kartini_Mengajar_A5_Vintage.png` contained a teacher and
-seated pupil statues. Built-in `image_gen` removed the three-dimensional human
-figures and the framed human photos while retaining the blackboard, empty mat,
-glass barrier, windows, lamp and room architecture. The output was visually
-checked for remaining figures before integration. The statue-filled original
-was then removed; rebuild uses only the approved clean source.
-
-The generated source is saved at
-`output/revision-assets/07-ruang-mengajar-empty.png`; the exact editing prompt is
-in its sibling `07-ruang-mengajar-empty.prompt.txt`. Rebuild refuses a missing
-clean source rather than substituting the original statue scene. Museum reliefs
-in the main gallery remain display artwork and must never become living people.
+The source ratio is approximately 1.79:1. Provider requests now use 16:9 to avoid
+the previous 3:2 framing pressure. There is no forced crop/stretch to A5
+1240×874. PNG master storage preserves the provider output proportions while
+limiting width to 1800 without upscaling; exact output dimensions remain
+provider-dependent.
 
 ## Active provider contract
 
@@ -75,21 +105,58 @@ All three provider paths share the same numbering and labels:
 1. Visitor photo: the only source of visitor identities and count.
 2. Primary selected-character face: fixed identity, added exactly once.
 3. Optional full-body image of that same character (five revised characters).
-4. Vintage environment; this is Reference 3 when there is no body image.
+4. Selected location/style photograph; this is Reference 3 when there is no body image.
 
 Every required asset is validated before any provider call, including the body
 reference. Missing files fail with `REFERENCE_MISSING`; previews and older
 portraits are never substituted. Provider image inputs use JPEG quality 92 at
-maximum width 1024; the full visitor photo keeps its existing processing.
-Warm vintage grading must retain clear faces, skin texture and clothing.
+maximum width 1536; the full visitor photo keeps its existing processing.
+Vintage prompts request restrained warmth with natural skin and facial detail;
+Warna prompts preserve the selected natural colors without sepia or aged-paper
+effects. Both preserve the visitors' original expressions, clothes and accessories
+by instruction.
 The optional visitor count is never defaulted to one.
+
+`POST /api/generate` accepts `backgroundStyle=vintage|warna`, defaulting to Vintage
+when omitted. Invalid values produce `400 BACKGROUND_STYLE_INVALID` before a
+provider call. Style is included in the request fingerprint, so reusing a
+generation ID for a different style conflicts rather than replaying another
+variant. SQLite results retain `background_style` and a `manifest_json` snapshot
+of the character, scene, background ID/asset ID/hash, requested output ratio and
+optional visitor count. A restored result uses that snapshot rather than being
+relabeled by a later catalog revision. This stores selected-input provenance;
+it does not validate how closely the AI followed those inputs.
 
 Transport tests compare the actual image bytes, order, labels and missing-asset
 behavior for every character and current activity, including legacy IDs.
 Browser checks use fake camera/provider results; they establish UI behavior,
-not actual generated likeness. No face detector, identity scorer or automatic
-output-count validator is implemented. A real output comparison with the same
-visitor photo is still needed to assess likeness after deployment.
+not actual generated likeness. Real photos of one, two, three and four visitors
+still require manual comparison against camera frames, agreed character faces
+and both background styles. Check identities, count, clothing, proportions,
+furniture/signage, static dioramas, contact shadows and clipping.
+
+## Imported implementation guidance and current limits
+
+The four supplied DOCX documents are preserved byte-for-byte under
+[`docs/asset-guidance`](asset-guidance/README.md), with source hashes. Current
+implementation adopts explicit asset/location IDs, revised-character priority,
+separate face/body roles, source provenance, static-exhibit instructions,
+natural colors and matching previews. A historical filename is not interpreted
+as curator approval; no curator-approval registry has been implemented.
+
+The runtime still sends reference photographs to a generative full-scene edit.
+Individual segmentation, alpha masks, deterministic layer compositing, automatic
+visitor counting/mismatch detection, an identity scorer, a dedicated
+consent/deletion interface and optional paper-edge treatment are not implemented.
+Therefore, the stronger guidance requirements of immutable background pixels
+and unchanged human pixels are not established. The guidance's fixed A5 size is
+also not the current output contract.
+
+Existing privacy behavior remains: gallery thumbnails are public and limited to
+eight recent results, while the full PNG uses the short-lived private download
+token. The guidance's broader privacy/consent requirements do not change that
+behavior automatically. No live identity/count or museum-preservation acceptance
+test is claimed by asset hashes, simulated tests, or this documentation.
 
 The existing model/provider settings are unchanged. Multi-reference request
 format follows the [OpenRouter Image API](https://openrouter.ai/blog/tutorials/image-generation/)
@@ -132,3 +199,10 @@ figure. No automatic face detector or output-count validator is implemented.
 Provider request tests validate the selected assets, exact order, and prompt
 constraints. They do not prove that a generative model will always comply;
 live identity/count checks still need a new real session after deployment.
+
+## Historical first November background revision
+
+The first November package used eight A5-ratio PNG backgrounds and a generated
+teaching-room cleanup with statues removed. That set and its cleanup prompt are
+superseded by the nine-location paired JPG package above. The current build uses
+the supplied diorama photographs intact; it does not recreate the earlier cleanup.

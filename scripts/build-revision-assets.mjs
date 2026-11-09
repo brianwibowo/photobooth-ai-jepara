@@ -1,61 +1,85 @@
 // Deterministic production derivatives from the client-approved November assets.
-// Original files are never modified. The teaching-room cleanup is generated
-// separately with image_gen, then visually verified before running this script.
+// Original files are never modified. The latest background delivery is encoded
+// without cropping, stretching, moving furniture, or editing the museum figures.
 import sharp from 'sharp'
-import { access, mkdir } from 'node:fs/promises'
+import { access, mkdir, readFile, writeFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
+import { createHash } from 'node:crypto'
 
 const projectPath = (relative) => fileURLToPath(new URL(`../${relative}`, import.meta.url))
-const destination = 'public/assets/revisions-2026-11'
+const sourceRoot = 'assets/sources'
+const characterRoot = 'public/assets/tokoh_pahlawan'
+const backgroundRoot = 'public/assets/backgrounds'
 const portraits = [
-  { id: 'kartini', folder: '0_RA Kartini', face: '8.jpg', body: '5.jpg' },
+  { id: 'kartini', folder: '1_ra kartini' },
   // Crop only the seated source photograph: include all headwear, the face,
   // neck and shoulders, without changing facial pixels or inventing detail.
-  { id: 'sosrokartono', folder: '1_Sosrokartono', face: '4.jpg', body: '5.jpg', faceCrop: { left: 520, top: 15, width: 900, height: 1200 } },
-  { id: 'kardinah', folder: '2_Kardinah', face: '1.jpg', body: '2.jpg' },
-  { id: 'roekmini', folder: '3_Roekmini', face: 'f.jpg', body: 'a.jpg' },
-  { id: 'sosroningrat', folder: '4_Sosroningrat', face: 'a.jpg', body: 'c.jpg' },
+  { id: 'sosrokartono', folder: '5_sosrokartono', faceCrop: { left: 520, top: 15, width: 900, height: 1200 } },
+  { id: 'kardinah', folder: '3_kardinah' },
+  { id: 'roekmini', folder: '4_roekmini' },
+  { id: 'sosroningrat', folder: '6_raden mas adipati ario sosroningrat' },
 ]
 const backgrounds = [
-  ['0_Revisi/Background/01_Ruang_Utama_A5_Vintage.png', '01-ruang-utama'],
-  ['0_Revisi/Background/02_Pendopo_A5_Vintage.png', '02-pendopo'],
-  ['0_Revisi/Background/03_Teras_Museum_A5_Vintage.png', '03-teras-museum'],
-  ['0_Revisi/Background/04_Taman_Sari_A5_Vintage.png', '04-taman-sari'],
-  ['0_Revisi/Background/05_Gerbang_Utama_A5_Vintage.png', '05-gerbang-utama'],
-  ['0_Revisi/Background/06_Dapur_1900an_A5_Vintage.png', '06-dapur-1900an'],
-  ['output/revision-assets/07-ruang-mengajar-empty.png', '07-ruang-mengajar-empty'],
-  ['0_Revisi/Background/08_Ruang_Makan_Keluarga_A5_Vintage.png', '08-ruang-makan'],
+  { id: 'gerbang-utama', name: 'Gerbang Utama' },
+  { id: 'pendopo', name: 'Pendopo' },
+  { id: 'aula-berkolom', name: 'Aula Berkolom' },
+  { id: 'ruang-utama', name: 'Ruang Utama' },
+  { id: 'ruang-kartini-mengajar', name: 'Ruang Kartini Mengajar' },
+  { id: 'ruang-keluarga', name: 'Ruang Keluarga' },
+  { id: 'ruang-makan-keluarga', name: 'Ruang Makan Keluarga' },
+  { id: 'taman-sari', name: 'Taman Sari' },
+  { id: 'dapur-1900an', name: 'Dapur 1900-an' },
 ]
+const styles = ['vintage', 'warna']
+const sha256 = (buffer) => createHash('sha256').update(buffer).digest('hex')
 
-// Used only while preparing the separately edited teaching-room source. A
-// normal rebuild fails when that clean source is missing, rather than silently
-// substituting the original room full of human-shaped statues.
-const skipTeaching = process.argv.includes('--skip-teaching')
-const selectedBackgrounds = backgrounds.filter(([, id]) => !skipTeaching || id !== '07-ruang-mengajar-empty')
+// Every canonical source is required. Never substitute another location,
+// another style, an older background, or an older character portrait.
 const sources = [
-  ...portraits.flatMap(({ folder, face, body }) => [face, body].map((file) => `0_Revisi/${folder}/${file}`)),
-  ...selectedBackgrounds.map(([source]) => source),
+  ...portraits.flatMap(({ id }) => ['face', 'body'].map((view) => `${sourceRoot}/characters/${id}/${view}.jpg`)),
+  ...backgrounds.flatMap(({ id }) => styles.map((style) => `${sourceRoot}/backgrounds/${style}/${id}.jpg`)),
 ]
 for (const source of sources) {
   try { await access(projectPath(source)) }
-  catch { throw new Error(`Sumber revisi belum tersedia: ${source}. Ruang mengajar wajib memakai versi kosong yang sudah diperiksa.`) }
+  catch { throw new Error(`Sumber aset belum tersedia: ${source}. Rebuild memerlukan seluruh sumber yang dipetakan.`) }
 }
 
-await mkdir(projectPath(`${destination}/characters`), { recursive: true })
-await mkdir(projectPath(`${destination}/backgrounds`), { recursive: true })
-for (const { id, folder, face, body, faceCrop } of portraits) {
-  let faceImage = sharp(projectPath(`0_Revisi/${folder}/${face}`)).rotate()
+for (const { id, folder, faceCrop } of portraits) {
+  await mkdir(projectPath(`${characterRoot}/${folder}`), { recursive: true })
+  let faceImage = sharp(projectPath(`${sourceRoot}/characters/${id}/face.jpg`)).rotate()
   if (faceCrop) faceImage = faceImage.extract(faceCrop)
   await faceImage.resize({ width: 1200, height: 1600, fit: 'inside', withoutEnlargement: true })
-    .webp({ quality: 94, effort: 6 }).toFile(projectPath(`${destination}/characters/${id}-face.webp`))
-  await sharp(projectPath(`0_Revisi/${folder}/${body}`)).rotate()
+    .webp({ quality: 94, effort: 6 }).toFile(projectPath(`${characterRoot}/${folder}/reference-2026-11.webp`))
+  await sharp(projectPath(`${sourceRoot}/characters/${id}/body.jpg`)).rotate()
     .resize({ height: 1600, withoutEnlargement: true })
-    .webp({ quality: 90, effort: 6 }).toFile(projectPath(`${destination}/characters/${id}-body.webp`))
+    .webp({ quality: 90, effort: 6 }).toFile(projectPath(`${characterRoot}/${folder}/body-2026-11.webp`))
 }
-for (const [source, id] of selectedBackgrounds) {
-  // Width-only resize preserves the source ratio. The provider prompt adapts
-  // the final composition to 3:2; these references are never stretched/cropped.
-  await sharp(projectPath(source)).rotate().resize({ width: 1536, withoutEnlargement: true })
-    .webp({ quality: 94, effort: 6 }).toFile(projectPath(`${destination}/backgrounds/${id}.webp`))
+const catalog = []
+for (const { id, name } of backgrounds) {
+  const variants = {}
+  for (const style of styles) {
+    await mkdir(projectPath(`${backgroundRoot}/${style}`), { recursive: true })
+    const source = await readFile(projectPath(`${sourceRoot}/backgrounds/${style}/${id}.jpg`))
+    const metadata = await sharp(source).metadata()
+    const productionFile = `${backgroundRoot}/${style}/${id}-2026-11-v2.webp`
+    // Width-only resize preserves the complete frame and its native ratio.
+    // The unmodified source JPEG remains available for pixel-exact compositing.
+    const production = await sharp(source).rotate().resize({ width: 1920, withoutEnlargement: true })
+      .webp({ quality: 94, effort: 6 }).toBuffer()
+    await writeFile(projectPath(productionFile), production)
+    variants[style] = {
+      assetId: `bg-${id}-${style}-v2`,
+      image: `/${productionFile.replace(/^public\//, '')}`,
+      sourceWidth: metadata.width,
+      sourceHeight: metadata.height,
+      sha256: sha256(production),
+      sourceSha256: sha256(source),
+    }
+  }
+  catalog.push({ id, name, variants })
 }
-console.log(`Revisi dibuat: ${portraits.length} tokoh (wajah + tubuh), ${selectedBackgrounds.length} latar vintage${skipTeaching ? '; ruang mengajar belum dibangun' : ''}.`)
+// Static metadata is imported by both the client and server. No filesystem or
+// Sharp dependency is needed at runtime; this file changes only on asset rebuild.
+const moduleSource = `// Generated by npm run assets:revisions from the canonical source JPEGs.\n// Hashes identify the exact production and original files; no faces or museum\n// architecture are regenerated by this asset build.\nexport const BACKGROUND_STYLES = ${JSON.stringify(styles)}\nexport const DEFAULT_BACKGROUND_STYLE = 'vintage'\n\nexport const backgroundCatalog = ${JSON.stringify(catalog, null, 2)}\n`
+await writeFile(projectPath('src/backgrounds.js'), moduleSource)
+console.log(`Aset utama dibuat: ${portraits.length} tokoh (wajah + tubuh), ${backgrounds.length} lokasi × ${styles.length} gaya latar; manifest hash diperbarui.`)

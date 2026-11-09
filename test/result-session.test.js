@@ -24,7 +24,7 @@ test('result continuation reactivates the QR once for 15 seconds, then expires w
   const result = await response.json()
   assert.equal(result.character.name, 'Soesalit')
   assert.equal(result.scene.name, 'Membatik Bersama')
-  assert.equal(result.scene.location, 'Halaman museum')
+  assert.equal(result.scene.location, 'Taman Sari museum')
   assert.equal(result.filename, 'photobooth_kartini_000001.png')
   assert.match((await fetch(base + result.imageUrl)).headers.get('content-disposition'), /filename="photobooth_kartini_000001.png"/)
   const endpoint = base + result.session.extendEndpoint

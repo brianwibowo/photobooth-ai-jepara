@@ -6,7 +6,7 @@ import path from 'node:path'
 import crypto from 'node:crypto'
 import sharp from 'sharp'
 import { createApp } from '../server/index.js'
-import { scenes, characters, getSceneForCharacter } from '../src/data.js'
+import { scenes, characters, characterScenes, getSceneForCharacter } from '../src/data.js'
 
 async function fixture(t, overrides = {}) {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'museum-audit-'))
@@ -26,6 +26,7 @@ async function fixture(t, overrides = {}) {
     body.append('sceneId', extra.scene || 'keluarga'); body.append('characterId', extra.character || 'soesalit')
     if (people !== undefined) body.append('people', String(people))
     if (extra.guests !== undefined) body.append('guests', extra.guests)
+    if (extra.backgroundStyle !== undefined) body.append('backgroundStyle', extra.backgroundStyle)
     return body
   }
   const post = (people, extra = {}, request = {}) => fetch(base + '/api/generate', { method: 'POST', body: form(people, extra), ...request })
@@ -64,7 +65,7 @@ test('all 21 figure/location combinations preserve the selected IDs', async (t) 
     const result = await response.json()
     assert.deepEqual(result.character, { id: character.id, name: character.name })
     const selectedScene = getSceneForCharacter(scene.id, character.id)
-    const expectedScene = { id: scene.id, name: selectedScene.name, location: selectedScene.location }
+    const expectedScene = { id: scene.id, name: selectedScene.name, location: selectedScene.location, backgroundStyle: 'vintage', backgroundId: selectedScene.backgroundId, backgroundAssetId: selectedScene.backgroundAssetId }
     if (selectedScene.activity) expectedScene.activity = selectedScene.activity
     if (selectedScene.place) expectedScene.place = selectedScene.place
     assert.deepEqual(result.scene, expectedScene)
@@ -81,9 +82,62 @@ test('character-specific scene rejects the old shared activity for Soesalit', as
   const response = await f.post(1, { scene: 'soesalit-dakon', character: 'soesalit' })
   assert.equal(response.status, 200)
   const result = await response.json()
-  assert.deepEqual(result.scene, { id: 'soesalit-dakon', name: 'Bermain Dakon', location: 'Pendopo museum', activity: 'Bermain dakon/congklak', place: 'Pendopo museum' })
+  assert.deepEqual(result.scene, { id: 'soesalit-dakon', name: 'Bermain Dakon', location: 'Pendopo museum', activity: 'Bermain dakon/congklak', place: 'Pendopo museum', backgroundStyle: 'vintage', backgroundId: 'pendopo', backgroundAssetId: 'bg-pendopo-vintage-v2' })
   assert.equal(f.calls.at(-1).sceneId, 'soesalit-dakon')
   assert.equal((await f.post(1, { scene: 'kartini-membatik', character: 'soesalit' })).status, 400)
+})
+
+test('style routing defaults to Vintage, rejects malformed styles, and never replays a different style', async (t) => {
+  const f = await fixture(t)
+  for (const backgroundStyle of ['', 'sepia', 'WARNA', '../warna', 'null']) {
+    const response = await f.post(1, { backgroundStyle })
+    assert.equal(response.status, 400)
+    assert.equal((await response.json()).code, 'BACKGROUND_STYLE_INVALID')
+  }
+  assert.equal(f.calls.length, 0, 'Invalid styles must be rejected before the provider')
+  const defaultResult = await (await f.post(1)).json()
+  assert.equal(defaultResult.scene.backgroundStyle, 'vintage')
+  assert.equal(f.calls.at(-1).backgroundStyle, 'vintage')
+
+  const id = crypto.randomUUID(), headers = { 'x-generation-id': id }
+  const selected = { scene: 'kartini-gerbang', character: 'kartini', backgroundStyle: 'warna' }
+  const response = await f.post(4, selected, { headers })
+  assert.equal(response.status, 200)
+  const result = await response.json()
+  assert.equal(result.scene.backgroundStyle, 'warna')
+  assert.equal(result.scene.backgroundId, 'gerbang-utama')
+  assert.equal(result.scene.backgroundAssetId, 'bg-gerbang-utama-warna-v2')
+  assert.equal(f.calls.at(-1).backgroundStyle, 'warna')
+  const before = f.calls.length
+  assert.equal((await f.post(4, selected, { headers })).status, 200)
+  assert.equal((await f.post(4, { ...selected, backgroundStyle: 'vintage' }, { headers })).status, 409)
+  assert.equal(f.calls.length, before, 'Neither replay nor style conflict may generate again')
+
+  const row = f.db.prepare('SELECT background_style, manifest_json FROM results WHERE id = ?').get(result.id)
+  const manifest = JSON.parse(row.manifest_json)
+  assert.equal(row.background_style, 'warna')
+  assert.equal(manifest.visitorCount, 4)
+  assert.equal(manifest.character.id, 'kartini')
+  assert.equal(manifest.scene.backgroundAssetId, result.scene.backgroundAssetId)
+  assert.match(manifest.scene.backgroundSha256, /^[a-f0-9]{64}$/)
+  // Restored results retain the selection captured at generation time even
+  // when a later catalog revision changes the current label.
+  const activity = characterScenes.find(({ id }) => id === selected.scene)
+  const originalName = activity.name
+  try {
+    activity.name = 'Later catalog label'
+    const recovered = await (await fetch(f.base + '/api/generations/' + id)).json()
+    assert.equal(recovered.result.scene.name, result.scene.name)
+    assert.equal(recovered.result.scene.backgroundStyle, 'warna')
+    assert.equal(recovered.result.scene.backgroundAssetId, result.scene.backgroundAssetId)
+  } finally { activity.name = originalName }
+  f.db.prepare('UPDATE results SET manifest_json = NULL WHERE id = ?').run(result.id)
+  const legacy = await (await fetch(f.base + '/api/generations/' + id)).json()
+  assert.equal(legacy.result.imageUrl, result.imageUrl)
+  assert.equal(legacy.result.scene.id, selected.scene)
+  assert.equal(legacy.result.scene.backgroundAssetId, undefined, 'Legacy rows must not claim the current background asset')
+  assert.equal(legacy.result.scene.backgroundStyle, undefined)
+  assert.equal(legacy.result.scene.name, 'Pilihan tempat sebelumnya')
 })
 
 test('admin export requires a valid token and malformed Unicode tokens return 401', async (t) => {

@@ -1,4 +1,4 @@
-import { characters, sceneCatalog } from './data.js'
+import { characters, sceneCatalog, BACKGROUND_STYLES, DEFAULT_BACKGROUND_STYLE } from './data.js'
 import { MAX_VISITORS } from './config.js'
 
 export const SESSION_KEY = 'museum-photobooth-session-v1'
@@ -10,13 +10,15 @@ export function parseSnapshot(raw, current = Date.now()) {
     const saved = JSON.parse(raw)
     if (saved?.version !== 1 || !/^[A-Za-z0-9_-]{20,80}$/.test(saved.id) || !Number.isFinite(saved.savedAt) || current - saved.savedAt > PHOTO_MAX_AGE_MS || saved.savedAt > current + 300000) return null
     if (!['home', 'scene', 'character', 'camera', 'confirm', 'generating', 'result'].includes(saved.screen)) return null
+    const backgroundStyle = saved.backgroundStyle === undefined ? DEFAULT_BACKGROUND_STYLE : saved.backgroundStyle
+    if (!BACKGROUND_STYLES.includes(backgroundStyle)) return null
     if (saved.people !== null && (!Number.isInteger(saved.people) || saved.people < 1 || saved.people > MAX_VISITORS)) return null
     if (saved.sceneId !== null && !sceneCatalog.some((scene) => scene.id === saved.sceneId)) return null
     if (saved.characterId !== null && !characters.some((character) => character.id === saved.characterId)) return null
     if (saved.screen !== 'home' && saved.screen !== 'result' && saved.screen !== 'generating' && (!Number.isFinite(saved.idleExpiresAt) || saved.idleExpiresAt <= current)) return null
     if (saved.requestId && !/^[A-Za-z0-9_-]{20,80}$/.test(saved.requestId)) return null
     if (saved.screen === 'result' && (!saved.result || !/^\/api\/download\/[A-Za-z0-9_-]+$/.test(saved.result.imageUrl))) return null
-    return saved
+    return { ...saved, backgroundStyle }
   } catch { return null }
 }
 

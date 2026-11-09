@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import QRCode from 'qrcode'
-import { characters, logos, homeBackground, homeStories, getSceneForCharacter, getScenesForCharacter } from './data'
+import { characters, logos, homeBackground, homeStories, getSceneForCharacter, getScenesForCharacter, BACKGROUND_STYLES, DEFAULT_BACKGROUND_STYLE } from './data'
 import './styles.css'
 import { IDLE_MS, readSnapshot, writeSnapshot, clearSnapshot, savePhoto, loadPhoto, removePhoto, cleanupPhotos } from './session-store.js'
 
@@ -15,6 +15,7 @@ function App() {
   const [screen, setScreen] = useState('home')
   const [sceneId, setSceneId] = useState(null)
   const [characterId, setCharacterId] = useState(null)
+  const [backgroundStyle, setBackgroundStyle] = useState(DEFAULT_BACKGROUND_STYLE)
   const [people, setPeople] = useState(null)
   const [photo, setPhoto] = useState(null)
   const [photoFile, setPhotoFile] = useState(null)
@@ -51,7 +52,7 @@ function App() {
   const snapshotRef = useRef(null)
   const captureBusyRef = useRef(false)
 
-  const scene = useMemo(() => sceneId ? getSceneForCharacter(sceneId, characterId) : null, [sceneId, characterId])
+  const scene = useMemo(() => sceneId ? getSceneForCharacter(sceneId, characterId, backgroundStyle) : null, [sceneId, characterId, backgroundStyle])
   const character = useMemo(() => characters.find((item) => item.id === characterId) || null, [characterId])
   const stepIndex = Math.max(0, STEPS.indexOf(screen))
 
@@ -101,7 +102,7 @@ function App() {
       }
       if (blob) { setPhotoFile(new File([blob], 'capture.jpg', { type: blob.type || 'image/jpeg' })); replacePhoto(URL.createObjectURL(blob)) }
       if (saved.screen === 'generating' && restoredScreen !== 'generating' && restoredScreen !== 'result') idleExpiresRef.current = Date.now() + SESSION_IDLE_MS
-      setSceneId(saved.sceneId); setCharacterId(saved.characterId); setPeople(saved.people)
+      setSceneId(saved.sceneId); setCharacterId(saved.characterId); setPeople(saved.people); setBackgroundStyle(saved.backgroundStyle)
       setRequestId(restoredRequestId); setResult(restoredResult); setScreen(restoredScreen)
       setIsBusy(restoredScreen === 'generating'); setGenerationNotice(notice); setError(notice)
       const galleryActive = saved.galleryOpen && saved.galleryExpiresAt > Date.now()
@@ -114,9 +115,9 @@ function App() {
   }, [])
   useEffect(() => {
     if (!hydrated) return
-    snapshotRef.current = { id: sessionIdRef.current, screen, sceneId, characterId, people, requestId, requestStartedAt: requestStartedRef.current, result, idleExpiresAt: idleExpiresRef.current, galleryOpen: isGalleryOpen, galleryExpiresAt, galleryDetail }
+    snapshotRef.current = { id: sessionIdRef.current, screen, sceneId, characterId, backgroundStyle, people, requestId, requestStartedAt: requestStartedRef.current, result, idleExpiresAt: idleExpiresRef.current, galleryOpen: isGalleryOpen, galleryExpiresAt, galleryDetail }
     writeSnapshot(snapshotRef.current)
-  }, [hydrated, screen, sceneId, characterId, people, requestId, result, isGalleryOpen, galleryExpiresAt, galleryDetail])
+  }, [hydrated, screen, sceneId, characterId, backgroundStyle, people, requestId, result, isGalleryOpen, galleryExpiresAt, galleryDetail])
   useEffect(() => {
     const save = () => { if (snapshotRef.current) writeSnapshot({ ...snapshotRef.current, idleExpiresAt: idleExpiresRef.current }) }
     window.addEventListener('pagehide', save)
@@ -177,12 +178,16 @@ function App() {
     photoUrlRef.current = nextUrl || null
     setPhoto(nextUrl)
   }
-  function begin() { snapshotRef.current = null; clearSnapshot(); void removePhoto(sessionIdRef.current).catch(() => {}); sessionIdRef.current = crypto.randomUUID(); setRequestId(null); stopCamera(); setResult(null); replacePhoto(null); setPhotoFile(null); setSceneId(null); setPeople(null); setCharacterId(null); go('character') }
+  function begin() { snapshotRef.current = null; clearSnapshot(); void removePhoto(sessionIdRef.current).catch(() => {}); sessionIdRef.current = crypto.randomUUID(); setRequestId(null); stopCamera(); setResult(null); replacePhoto(null); setPhotoFile(null); setSceneId(null); setBackgroundStyle(DEFAULT_BACKGROUND_STYLE); setPeople(null); setCharacterId(null); go('character') }
   function chooseScene(id) {
-    const selected = characterId && getScenesForCharacter(characterId).find((item) => item.id === id)
+    const selected = characterId && getScenesForCharacter(characterId, backgroundStyle).find((item) => item.id === id)
     if (!selected) return
     if (sceneId !== id) setRequestId(null)
     setSceneId(id)
+  }
+  function chooseBackgroundStyle(style) {
+    if (!BACKGROUND_STYLES.includes(style) || style === backgroundStyle) return
+    setBackgroundStyle(style); setRequestId(null); setGenerationNotice(''); setError('')
   }
   async function startCamera() {
     stopCamera()
@@ -275,12 +280,12 @@ function App() {
     const id = requestId || crypto.randomUUID()
     if (!requestId) requestStartedRef.current = Date.now()
     setRequestId(id); setError(''); setGenerationNotice(''); setScreen('generating'); setIsBusy(true)
-    const body = new FormData(); body.append('photo', photoFile); body.append('sceneId', scene.id); body.append('characterId', character.id)
+    const body = new FormData(); body.append('photo', photoFile); body.append('sceneId', scene.id); body.append('characterId', character.id); body.append('backgroundStyle', backgroundStyle)
     if (people !== null) body.append('people', String(people))
     const controller = new AbortController(); generateControllerRef.current = controller
     const activeSession = sessionIdRef.current
     // Store the receipt before sending, even if the browser reloads before React commits.
-    snapshotRef.current = { ...snapshotRef.current, id: activeSession, screen: 'generating', sceneId, characterId, people, requestId: id, requestStartedAt: requestStartedRef.current, result: null, idleExpiresAt: idleExpiresRef.current, galleryOpen: false }
+    snapshotRef.current = { ...snapshotRef.current, id: activeSession, screen: 'generating', sceneId, characterId, backgroundStyle, people, requestId: id, requestStartedAt: requestStartedRef.current, result: null, idleExpiresAt: idleExpiresRef.current, galleryOpen: false }
     writeSnapshot(snapshotRef.current)
     try {
       const response = await fetch('/api/generate', { method: 'POST', headers: { 'x-generation-id': id }, body, signal: controller.signal })
@@ -330,13 +335,13 @@ function App() {
       if (resultExtensionRef.current === controller) { resultExtensionRef.current = null; setResultExtending(false) }
     }
   }
-  function newSession() { const oldId = sessionIdRef.current; snapshotRef.current = null; clearSnapshot(); void removePhoto(oldId).catch(() => {}); sessionIdRef.current = crypto.randomUUID(); idleExpiresRef.current = 0; requestStartedRef.current = 0; setRequestId(null); setIsBusy(false); setGenerationNotice(''); closeGallery(); stopCamera(); generateControllerRef.current?.abort(); generateControllerRef.current = null; resultExtensionRef.current?.abort(); resultExtensionRef.current = null; clearInterval(resultTimerRef.current); setResultResetRemaining(null); setResultExtending(false); setResultSessionError(''); setIsGalleryOpen(false); setResult(null); setQrData(''); setError(''); replacePhoto(null); setPhotoFile(null); setSceneId(null); setPeople(null); setCharacterId(null); go('home') }
+  function newSession() { const oldId = sessionIdRef.current; snapshotRef.current = null; clearSnapshot(); void removePhoto(oldId).catch(() => {}); sessionIdRef.current = crypto.randomUUID(); idleExpiresRef.current = 0; requestStartedRef.current = 0; setRequestId(null); setIsBusy(false); setGenerationNotice(''); closeGallery(); stopCamera(); generateControllerRef.current?.abort(); generateControllerRef.current = null; resultExtensionRef.current?.abort(); resultExtensionRef.current = null; clearInterval(resultTimerRef.current); setResultResetRemaining(null); setResultExtending(false); setResultSessionError(''); setIsGalleryOpen(false); setResult(null); setQrData(''); setError(''); replacePhoto(null); setPhotoFile(null); setSceneId(null); setBackgroundStyle(DEFAULT_BACKGROUND_STYLE); setPeople(null); setCharacterId(null); go('home') }
 
   if (!hydrated) return <main className="generating screen-content"><p role="status">Memulihkan sesi…</p></main>
 
   return <div className="app-shell">
     {screen === 'home' && <Home onStart={begin} onGallery={openGallery} />}
-    {screen === 'scene' && <ScenePicker scene={scene} character={character} onSelect={chooseScene} onNext={() => { if (scene && character) go('camera') }} onBack={() => go('character')} />}
+    {screen === 'scene' && <ScenePicker scene={scene} character={character} backgroundStyle={backgroundStyle} onStyle={chooseBackgroundStyle} onSelect={chooseScene} onNext={() => { if (scene && character) go('camera') }} onBack={() => go('character')} />}
     {screen === 'character' && <CharacterPicker character={character} onSelect={(id) => { if (id !== characterId) { setRequestId(null); setSceneId(null) }; setCharacterId(id) }} onNext={() => { if (character) go('scene') }} onBack={newSession} />}
     {screen === 'camera' && <CameraScreen people={people} onPeople={(value) => { setRequestId(null); setPeople(value) }} videoRef={videoRef} cameraReady={cameraReady} onStart={startCamera} onStop={stopCamera} onCapture={capturePhoto} onBack={() => { stopCamera(); go('scene') }} error={error || generationNotice} />}
     {screen === 'confirm' && <ConfirmScreen people={people} photo={photo} scene={scene} character={character} onBack={() => go('camera')} onGenerate={generate} error={error} />}
@@ -355,9 +360,40 @@ function LogoStrip() {
 
 function Home({ onStart, onGallery }) {
   const storyViewportRef = useRef(null)
+  const [publicPhotos, setPublicPhotos] = useState([])
+  const frames = useMemo(() => {
+    const locations = homeStories.flatMap(({ id, images, alt }) => images.map((src, index) => ({ id: `${id}-${index}`, src, alt, kind: 'location' })))
+    const portraits = characters.map((character) => ({ id: `character-${character.id}`, src: character.reference, alt: character.name, kind: 'portrait' }))
+    const people = [...publicPhotos, ...portraits].slice(0, 8)
+    const mixed = []
+    for (let index = 0; index < Math.max(locations.length, people.length); index += 1) {
+      if (people[index]) mixed.push(people[index])
+      if (locations[index]) mixed.push(locations[index])
+    }
+    return mixed
+  }, [publicPhotos])
+  useEffect(() => {
+    const controller = new AbortController()
+    fetch('/api/gallery?limit=8', { signal: controller.signal, cache: 'no-store' })
+      .then((response) => response.ok ? response.json() : null)
+      .then((payload) => {
+        if (controller.signal.aborted || !Array.isArray(payload?.items)) return
+        const seen = new Set()
+        const photos = payload.items.slice(0, 8).flatMap(({ thumbnailUrl }) => {
+          if (typeof thumbnailUrl !== 'string' || !/^\/api\/gallery\/image\/[A-Za-z0-9._-]+-thumb\.webp$/.test(thumbnailUrl) || seen.has(thumbnailUrl)) return []
+          seen.add(thumbnailUrl)
+          return [{ id: thumbnailUrl, src: thumbnailUrl, alt: 'Foto kenangan pengunjung bersama tokoh museum', kind: 'gallery' }]
+        })
+        setPublicPhotos(photos)
+      })
+      .catch(() => { /* Approved character portraits remain available. */ })
+    return () => controller.abort()
+  }, [])
   useEffect(() => {
     let frame
     let last = performance.now()
+    const motion = window.matchMedia('(prefers-reduced-motion: reduce)')
+    if (storyViewportRef.current) storyViewportRef.current.scrollTop = 0
     const tick = (now) => {
       const viewport = storyViewportRef.current
       const firstCard = viewport?.firstElementChild?.firstElementChild
@@ -369,32 +405,40 @@ function Home({ onStart, onGallery }) {
       // Keep the editorial strip visibly moving while leaving enough time to
       // read each card. The old 35 px/s pace felt stalled on the kiosk.
       viewport.scrollTop += elapsed * 0.08
-      const loopDistance = step * homeStories.length
+      const loopDistance = step * frames.length
       if (loopDistance > 0 && viewport.scrollTop >= loopDistance) viewport.scrollTop -= loopDistance
       frame = window.requestAnimationFrame(tick)
     }
-    frame = window.requestAnimationFrame(tick)
-    return () => window.cancelAnimationFrame(frame)
-  }, [])
+    const updateMotion = () => {
+      window.cancelAnimationFrame(frame)
+      last = performance.now()
+      if (!motion.matches) frame = window.requestAnimationFrame(tick)
+    }
+    updateMotion()
+    motion.addEventListener('change', updateMotion)
+    return () => { window.cancelAnimationFrame(frame); motion.removeEventListener('change', updateMotion) }
+  }, [frames.length])
   return <main className="home screen-content">
     <section className="hero-copy">
       <div className="home-title"><div className="home-eyebrow">PHOTOBOOTH AI</div><div className="home-title-top"><span>Hadir dalam</span><img className="home-brand" src="/assets/logo/logo-museum.webp" alt="Museum R.A. Kartini Rembang" /></div><em>Kisah Kartini</em><div className="home-title-rule" aria-hidden="true"><span>✦</span></div></div>
       <div className="home-museum-art"><img src={homeBackground} alt="Gerbang Museum R.A. Kartini Rembang" /></div>
       <div className="home-actions">
-        <button className="home-start" onClick={onStart}>MULAI <span aria-hidden="true">▶</span></button>
+        <button className="home-start" onClick={onStart}>Mulai Foto <span aria-hidden="true">▶</span></button>
         <button className="home-gallery" onClick={onGallery}>Lihat Galeri <span aria-hidden="true">↗</span></button>
       </div>
     </section>
-    <section className="home-static-catalog" aria-label="Pilihan kisah R.A. Kartini">
-      <div className="home-story-viewport" ref={storyViewportRef}><div className="home-story-track">{[...homeStories, ...homeStories].map((story, index) => <div className="home-story-card" key={`${story.id}-${index}`}><img src={story.images[0]} alt={story.alt} decoding="async" /></div>)}</div></div>
+    <section className="home-static-catalog" aria-label="Foto kenangan dan tokoh museum">
+      <div className="home-story-viewport" ref={storyViewportRef}><div className="home-story-track">{[...frames, ...frames].map((item, index) => <div className={`home-story-card ${item.kind !== 'location' ? 'is-portrait' : ''}`} key={`${item.id}-${index}`}><img src={item.src} alt={item.alt} decoding="async" onError={item.kind === 'gallery' ? () => setPublicPhotos((current) => current.filter(({ src }) => src !== item.src)) : undefined} /></div>)}</div></div>
     </section>
   </main>
 }
 
-function ScenePicker({ scene, character, onSelect, onNext, onBack }) {
-  const available = character ? getScenesForCharacter(character.id) : []
+function ScenePicker({ scene, character, backgroundStyle, onStyle, onSelect, onNext, onBack }) {
+  const available = character ? getScenesForCharacter(character.id, backgroundStyle) : []
   return <main className="flow screen-content picker-screen scene-screen">
-    <FlowHeading kicker="02 / PILIH TEMPAT" title={<>Di mana kisahmu <em>dimulai?</em></>} copy={`Pilih suasana untuk berfoto bersama ${character?.name || 'tokoh pilihanmu'}.`} />
+    <FlowHeading kicker="02 / PILIH TEMPAT" title={<>Di mana kisahmu <em>dimulai?</em></>} copy={`Pilih suasana untuk berfoto bersama ${character?.name || 'tokoh pilihanmu'}.`}>
+      <fieldset className="background-style-picker"><legend>Nuansa foto</legend><div>{BACKGROUND_STYLES.map((style) => <button type="button" key={style} aria-pressed={backgroundStyle === style} onClick={() => onStyle(style)}>{style === 'vintage' ? 'Vintage' : 'Warna'}</button>)}</div></fieldset>
+    </FlowHeading>
     <div className="scene-grid">{available.map((item) => <button aria-pressed={scene?.id === item.id} className={`scene-card ${scene?.id === item.id ? 'selected' : ''}`} key={item.id} onClick={() => onSelect(item.id)}><img src={item.image} alt="" /><span className="scene-overlay" /><span className="scene-info"><strong>{item.name}</strong><span>{item.activity ? `${item.activity} · ${item.place}` : item.description}</span></span><span className="selection-check" aria-hidden="true">{scene?.id === item.id ? '✓' : '+'}</span></button>)}</div>
     <div className="flow-actions"><BackButton onClick={onBack} /><p className="selection-summary">{scene?.name || 'Pilih satu tempat'}</p><button className="button primary" onClick={onNext} disabled={!scene}>Lanjut ke foto <span>→</span></button></div>
   </main>
@@ -433,7 +477,7 @@ function CameraScreen({ people, onPeople, videoRef, cameraReady, onStart, onStop
   </FlowHeading><div className="camera-stage"><video ref={videoRef} autoPlay playsInline muted /><div className="camera-guide"><span /><span /><span /><span /></div>{countdown !== null && <div className="camera-countdown" aria-live="assertive">{countdown}</div>}<div className="camera-hint">{cameraReady ? 'Kamera siap · pastikan wajah terlihat jelas' : 'Menunggu izin kamera…'}</div></div><div className="flow-footer">{error && <ErrorMessage text={error} />}<div className="camera-actions"><BackButton onClick={onBack} /><button className="button primary capture-button" onClick={captureWithCountdown} disabled={!cameraReady || countdown !== null}>{countdown !== null ? `Bersiap… ${countdown}` : 'Ambil foto'} <span>◉</span></button>{!cameraReady && <button className="button secondary camera-start" onClick={onStart}>Aktifkan kamera <span>↗</span></button>}</div></div></main>
 }
 
-function ConfirmScreen({ people, photo, scene, character, onBack, onGenerate, error }) { return <main className="flow screen-content horizontal-flow confirm-screen"><FlowHeading kicker="04 / CEK FOTO" title={<>Sudah siap<br /><em>jadi kenangan?</em></>} copy="Periksa foto dan pilihanmu sebelum kami menyusun hasil akhir." /><div className="confirm-layout"><div className="photo-preview"><img src={photo} alt="Pratinjau foto pengunjung" /><div className="photo-label">FOTO KAMU{people !== null && ` · ${people} PENGUNJUNG`}</div></div><div className="summary-card"><span className="summary-kicker">KISAH PILIHANMU</span><h3>{scene?.name}</h3><p>{scene?.location}</p>{scene?.activity && <p className="scene-activity">Aktivitas: {scene.activity}</p>}<div className="summary-character"><img src={character?.reference} alt="" /><span><small>Bersama</small><strong>{character?.name}</strong></span></div><p className="privacy-note">Pastikan semua wajah terlihat jelas. Kamu bisa mengambil ulang foto sebelum melanjutkan.</p></div></div><div className="flow-footer">{error && <ErrorMessage text={error} />}<div className="flow-actions"><BackButton onClick={onBack} label="Ambil ulang" /><button className="button primary" onClick={onGenerate}>{error ? 'Coba lagi' : 'Buat foto kenangan'} <span>→</span></button></div></div></main> }
+function ConfirmScreen({ people, photo, scene, character, onBack, onGenerate, error }) { return <main className="flow screen-content horizontal-flow confirm-screen"><FlowHeading kicker="04 / CEK FOTO" title={<>Sudah siap<br /><em>jadi kenangan?</em></>} copy="Periksa foto dan pilihanmu sebelum kami menyusun hasil akhir." /><div className="confirm-layout"><div className="photo-preview"><img src={photo} alt="Pratinjau foto pengunjung" /><div className="photo-label">FOTO KAMU{people !== null && ` · ${people} PENGUNJUNG`}</div></div><div className="summary-card"><span className="summary-kicker">KISAH PILIHANMU</span><h3>{scene?.name}</h3><p>{scene?.location}</p><p className="scene-style">Nuansa {scene?.backgroundStyle === 'warna' ? 'Warna' : 'Vintage'}</p>{scene?.activity && <p className="scene-activity">Aktivitas: {scene.activity}</p>}<div className="summary-character"><img src={character?.reference} alt="" /><span><small>Bersama</small><strong>{character?.name}</strong></span></div><p className="privacy-note">Pastikan semua wajah terlihat jelas. Kamu bisa mengambil ulang foto sebelum melanjutkan.</p></div></div><div className="flow-footer">{error && <ErrorMessage text={error} />}<div className="flow-actions"><BackButton onClick={onBack} label="Ambil ulang" /><button className="button primary" onClick={onGenerate}>{error ? 'Coba lagi' : 'Buat foto kenangan'} <span>→</span></button></div></div></main> }
 
 const GENERATING_MESSAGES = [
   { title: 'Menyusun kisah', emphasis: 'untukmu…', note: 'Foto dan pilihanmu menjadi awal sebuah kenangan.' },
@@ -544,7 +588,7 @@ function ResultScreen({ result, qrData, remaining, notice, onNew, onGallery, onP
     {notice && <ErrorMessage text={notice} />}
     <div className="result-heading"><LogoStrip /><p className="eyebrow">HASIL KENANGAN</p><h1>Inilah <em>kisahmu.</em></h1><p>Terima kasih sudah menghidupkan kembali cerita di Museum R.A. Kartini.</p></div>
     <div className="result-layout">
-      <div className="polaroid"><img src={result?.imageUrl} alt="Hasil foto kenangan" /><div className="polaroid-footer"><img src="/assets/logo/logo-museum.webp" alt="Museum R.A. Kartini" /><span className="result-caption">{character && scene ? <><strong>Bersama {character.name}</strong><small>{scene.name} · {scene.location}</small></> : <>Sejarah bukan hanya<br /><b>untuk dikenang.</b></>}</span></div></div>
+      <div className="polaroid"><img src={result?.imageUrl} alt="Hasil foto kenangan" /><div className="polaroid-footer"><img src="/assets/logo/logo-museum.webp" alt="Museum R.A. Kartini" /><span className="result-caption">{character && scene ? <><strong>Bersama {character.name}</strong><small>{scene.name} · {scene.location}</small>{scene.backgroundStyle && <span className="result-background-style">Nuansa {scene.backgroundStyle === 'warna' ? 'Warna' : 'Vintage'}</span>}</> : <>Sejarah bukan hanya<br /><b>untuk dikenang.</b></>}</span></div></div>
       <div className="result-tools">
         <div className={`qr-card ${remaining === 0 ? 'expired' : ''}`}><div>{qrData ? <img src={qrData} alt="QR code untuk mengunduh foto" /> : <div className="qr-placeholder" aria-label="QR code sedang disiapkan">QR</div>}</div><div><strong>Scan untuk membawa<br />pulang fotomu</strong><small><b className="qr-expiry">{remaining > 0 ? `QR tersedia ${remaining} detik` : 'QR sudah habis waktunya'}</b><br />{result?.session?.continuationUsed ? 'Setelah waktu habis, kembali ke beranda otomatis.' : 'Saat waktu habis, pilih lanjutkan atau keluar.'}</small></div></div>
         <EmailPhotoForm key={result?.id || result?.imageUrl} delivery={result?.email} sessionExpiresAt={result?.downloadExpiresAt} />

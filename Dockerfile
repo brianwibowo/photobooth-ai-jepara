@@ -12,7 +12,8 @@ RUN npm ci --no-audit --no-fund
 COPY index.html vite.config.js ./
 COPY src ./src
 COPY public ./public
-RUN NODE_OPTIONS=--max-old-space-size=512 npm run build \
+COPY scripts/check-assets.mjs ./scripts/check-assets.mjs
+RUN NODE_OPTIONS=--max-old-space-size=512 npm run check \
     && npm prune --omit=dev --no-audit --no-fund
 
 # Build Caddy before the final app stage so a plain `docker build .` produces
@@ -42,6 +43,7 @@ COPY --from=build /app/public ./public
 # The server imports the catalog and shared visitor limit at runtime.
 # Keep these runtime modules explicit instead of copying the full source tree.
 COPY --from=build /app/src/data.js ./src/data.js
+COPY --from=build /app/src/backgrounds.js ./src/backgrounds.js
 COPY --from=build /app/src/config.js ./src/config.js
 COPY server ./server
 USER node

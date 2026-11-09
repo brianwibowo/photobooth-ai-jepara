@@ -76,8 +76,11 @@ Hitung mundur pengambilan foto berlangsung tujuh detik; ambil ulang memulai
 hitung mundur baru dan keluar dari kamera membatalkan pengambilan.
 
 Pada beranda landscape, teks dan gerbang vintage museum mengisi sisi kiri,
-sedangkan ilustrasi lokasi vintage mengisi sisi kanan. Kartu beranda memakai
-aset statis, bukan foto pengunjung atau contoh wajah tokoh versi lama.
+sedangkan foto berjalan mengisi sisi kanan. Foto hasil galeri publik terbaru
+diselingi kesembilan lokasi vintage. Foto ketujuh tokoh pilihan melengkapi
+galeri yang masih sedikit atau kosong. Pratinjau galeri hanya memakai
+thumbnail publik, tanpa token unduh privat. Putaran menampilkan semua gambar
+dan berhenti pada preferensi reduced motion. Tombol utama bertuliskan **Mulai Foto**.
 Tombol **Lihat galeri** tetap tersedia di beranda dan hasil untuk membuka
 delapan hasil AI terbaru.
 Teks loading berganti setiap lima detik selama permintaan AI masih berjalan,
@@ -86,33 +89,51 @@ ditampilkan dengan hijau tebal.
 
 Katalog di `src/data.js` memakai folder berikut di `public/assets`:
 
-- `revisions-2026-11/characters`: acuan wajah dan tubuh terpisah untuk Kartini,
-  Sosrokartono, Kardinah, Roekmini, dan Sosroningrat, dari sumber `0_Revisi`.
-- `revisions-2026-11/backgrounds`: delapan latar vintage. Ruang mengajar memakai
-  versi tanpa patung manusia. Kartu tempat memakai latar yang sama dengan input AI.
+- `tokoh_pahlawan`: acuan lima tokoh revisi berada dalam folder tokoh masing-masing
+  sebagai `reference-2026-11.webp` (wajah) dan `body-2026-11.webp` (tubuh/pakaian).
+  Kartini, Sosrokartono, Kardinah, Roekmini, dan Sosroningrat masing-masing memakai
+  satu wajah utama serta satu foto tubuh terpilih. Adhiningrat dan Soesalit tetap
+  memakai `display.webp` dan `reference.webp` sebelumnya.
+- `backgrounds/vintage` dan `backgrounds/warna`: sembilan lokasi dengan dua
+  varian masing-masing. Kartu tempat memakai varian yang sama dengan input AI.
+  Foto ruangan terbaru dipakai utuh, termasuk patung/diorama sebagai koleksi
+  museum; figur koleksi tidak diminta menjadi orang tambahan.
 - `logo`: logo Jawa Tengah, Rembang, museum, dan Museum di Hatiku.
-- `tokoh_pahlawan`: hanya empat WebP aktif milik Adhiningrat dan Soesalit,
-  masing-masing `display.webp` dan `reference.webp`, yang tetap dipakai tanpa
-  penggantian.
 
-Set produksi berisi 26 berkas: sepuluh acuan wajah/tubuh baru, delapan latar
-vintage, empat logo, dan empat gambar dua tokoh yang tidak direvisi. Latar lama,
-thumbnail tempat lama, PNG adegan, folder referensi lama, serta gambar lima tokoh
-versi sebelumnya telah dihapus.
+Set produksi aktif berisi 36 berkas: sepuluh acuan wajah/tubuh baru, 18 varian
+latar, empat logo, dan empat gambar dua tokoh yang tidak direvisi. `src/backgrounds.js`
+menyimpan ID lokasi, ID aset, dimensi sumber, dan SHA-256 sumber/produksi;
+`src/data.js` memetakan aktivitas ke lokasi. Thumbnail lama, PNG adegan lama,
+dan versi tokoh yang sudah diganti tidak digunakan.
+
+Pada layar tempat, pilihan **Nuansa foto** menyediakan **Vintage** (default)
+dan **Warna**. Mengubah nuansa mengganti preview serta referensi generasi tanpa
+mengubah tokoh atau aktivitas terpilih. Nuansa tersimpan saat refresh dan
+ditampilkan di konfirmasi serta hasil. Beranda memakai sembilan lokasi versi
+Vintage sebagai ilustrasi statis.
 
 Tempat dan tokoh tidak dipilih otomatis pada sesi baru. Tombol lanjut aktif
 setelah pengunjung memilih sendiri. Pilihan yang sudah dibuat tetap tersimpan
 ketika kembali ke langkah sebelumnya.
 
 Turunan revisi dapat dibangun ulang dengan `npm run assets:revisions` dari
-`0_Revisi` dan `output/revision-assets/07-ruang-mengajar-empty.png`. Script
-mempertahankan rasio gambar; tidak meregenerasi wajah. `0_Revisi` menyimpan
-sepuluh JPG portrait terpilih dan tujuh PNG latar yang digunakan untuk rebuild.
-Alternatif portrait yang tidak dipakai dan ruang mengajar asli berisi patung
-telah dihapus; sumber ruang mengajar bersih beserta prompt editnya tetap ada di
-`output/revision-assets/`. Script dan perintah `assets:previews` versi lama
-sudah dihapus. File WebP produksi disimpan di `public/assets`, sehingga Docker
-tidak perlu membawa sumber revisi atau menjalankan generasi gambar saat build.
+`assets/sources/characters/{id}/face.jpg` dan `body.jpg`, serta 18 JPG di
+`assets/sources/backgrounds/{vintage,warna}/{id}.jpg`. Sumber JPG tidak diubah;
+WebP latar dibatasi lebar 1920 tanpa memperbesar, memotong, atau meregangkan
+gambar. Script tidak meregenerasi wajah atau mengedit diorama. Rebuild juga
+memperbarui manifest hash `src/backgrounds.js`. Seluruh sumber berada di direktori
+utama; aplikasi tidak bergantung pada folder kiriman atau output sementara.
+File WebP produksi ikut di `public/assets`, sehingga Docker tidak membawa sumber
+atau menjalankan generasi gambar saat build.
+
+Empat dokumen panduan asli dipertahankan di
+[docs/asset-guidance](docs/asset-guidance/README.md), dengan hash provenance.
+Implementasi saat ini memakai manifest, prioritas referensi wajah, pemilihan
+nuansa, dan instruksi menjaga koleksi museum. Pemrosesan foto masih berupa
+generasi/edit seluruh adegan; segmentasi per orang, mask, komposit deterministik,
+detektor jumlah pengunjung, validasi kurator, kontrol consent/penghapusan khusus,
+dan efek pinggir kertas belum diterapkan. Hash aset membuktikan file referensi
+yang dipilih, bukan jaminan piksel background atau wajah hasil AI identik.
 
 Kartu tempat memakai katalog aktivitas per tokoh, sehingga urutan interaksi
 selalu tokoh lalu tempat. Ada 16 aktivitas dengan 1–3 pilihan per tokoh;
@@ -122,7 +143,7 @@ Soesalit mengikuti referensi anak, termasuk pada prompt generasi.
 Jalankan `npm run check` untuk mengecek keberadaan aset, relasi katalog, dan build.
 
 Referensi generasi selalu berurutan: foto pengunjung, wajah tokoh pilihan,
-acuan tubuh/pakaian tokoh yang sama jika tersedia, lalu latar vintage.
+acuan tubuh/pakaian tokoh yang sama jika tersedia, lalu latar dengan nuansa terpilih.
 Lima tokoh revisi memakai empat gambar; Adhiningrat dan Soesalit tetap memakai
 tiga. Acuan wajah menjadi prioritas identitas; tubuh bukan orang tambahan.
 Model diminta mempertahankan semua pengunjung dari
@@ -130,6 +151,9 @@ foto, ditambah tepat satu tokoh; nama museum tidak berarti menambah Kartini.
 Saat jumlah tidak diisi, tidak ada default satu orang. Referensi wajib yang
 hilang menghasilkan error, bukan fallback ke ilustrasi berisi orang contoh.
 Prompt aset, sumber, dan batas verifikasi ada di [docs/reference-backgrounds.md](docs/reference-backgrounds.md).
+Provider diminta menghasilkan komposisi 16:9 agar mendekati rasio foto latar
+terbaru (sekitar 1,79:1). Ukuran A5 tetap 1240×874 dari panduan belum menjadi
+kontrak output; master PNG mempertahankan proporsi hasil provider tanpa stretching.
 
 Pada loading, foto tampil utuh dalam bingkai persegi panjang tanpa crop,
 termasuk orang di ujung foto grup. Ini hanya pratinjau; input AI adalah foto utuh.
@@ -139,7 +163,7 @@ membuka foto utuh dalam pop-up detail; tombol **×**, Escape, atau sentuhan di
 luar detail menutupnya dan mengembalikan ke daftar galeri. Pratinjau detail
 memakai WebP galeri publik; token unduh PNG tetap privat pada sesi hasil.
 
-Refresh memulihkan sesi aktif pada tab yang sama: pilihan tempat/tokoh,
+Refresh memulihkan sesi aktif pada tab yang sama: pilihan tempat/tokoh/nuansa,
 jumlah, foto konfirmasi, generasi yang berjalan, hasil, serta galeri/detail.
 Metadata disimpan di sessionStorage; foto sumber sebagai Blob di IndexedDB,
 bukan base64 di localStorage. Countdown kamera dimulai ulang dan tidak otomatis
@@ -151,11 +175,13 @@ Jika cache foto hilang/diblokir, kembali ke kamera untuk ambil ulang. Jika selur
 sessionStorage diblokir, refresh memulai dari beranda. Tab baru memulai sesi baru.
 
 Setiap permintaan kiosk membawa header `x-generation-id`. Status SQLite dan
-fingerprint foto/pilihan memastikan pengulangan ID yang sama tidak membuat job
+fingerprint foto/pilihan/nuansa memastikan pengulangan ID yang sama tidak membuat job
 baru. Refresh selama generasi memeriksa `GET /api/generations/:id` dan tidak
 mengirim ulang POST otomatis. Restart server menandai job terputus sebagai gagal;
 operator/pengunjung memilih retry secara eksplisit. Ini tidak menjamin billing
 exactly-once dari provider yang mengalami timeout atau fallback.
+SQLite juga menyimpan snapshot pilihan tokoh, lokasi, nuansa, ID/hash aset latar,
+dan jumlah opsional bersama hasil agar pemulihan hasil memakai metadata sesi itu.
 
 Setelah QR habis, pop-up memberikan 10 detik untuk memilih **Lanjutkan (15 detik)**
 atau **Keluar**. Tanpa tindakan, kembali ke beranda. Lanjutkan mengaktifkan
@@ -236,7 +262,7 @@ akun mendukungnya, [app password memerlukan 2-Step Verification](https://support
 
 - `GET /api/health`: readiness and provider mode.
 - `GET /api/gallery?limit=8`: newest public thumbnails only (default and maximum 8).
-- `POST /api/generate`: internal multipart camera capture with `photo`, `sceneId`, and `characterId`; optional `people` (1–4) is accepted independently; legacy `guests` data is validated when supplied; the kiosk does not expose a file-upload control.
+- `POST /api/generate`: internal multipart camera capture with `photo`, `sceneId`, and `characterId`; optional `backgroundStyle` is `vintage` (default) or `warna`, and invalid values return `400 BACKGROUND_STYLE_INVALID`; optional `people` (1–4) is accepted independently; legacy `guests` data is validated when supplied; the kiosk does not expose a file-upload control.
 - `GET /api/generations/:id`: status privat running/complete/failed; hasil kedaluwarsa tidak dipulihkan.
 - `POST /api/results/:token/email`: token sesi aktif + JSON `{ "email": "..." }`; membuat job pengiriman lampiran.
 - `GET /api/results/:token/email`: status job tanpa menampilkan alamat penerima.
@@ -269,8 +295,9 @@ mengirim generasi berbayar atau email nyata. JSON dan screenshot keluar ke
 `audit-results/` (diabaikan Git). Laporan terperinci dan batas verifikasi ada di
 [docs/AUDIT_2026-10-23.md](docs/AUDIT_2026-10-23.md).
 
-Audit revisi memeriksa ketujuh tokoh dan seluruh 16 kartu tempat pada landscape,
-portrait, dan mobile, termasuk refresh, tombol kembali, gambar, dan satu alur
-foto hingga hasil simulasi. Screenshot/JSON berada di `output/playwright/revisions/`.
+Audit revisi memeriksa ketujuh tokoh, 16 kartu aktivitas dan pilihan nuansa pada
+landscape, portrait, dan mobile, termasuk refresh, tombol kembali, gambar, dan
+alur foto hingga hasil simulasi. Screenshot/JSON berada di `output/playwright/revisions/`.
 Audit otomatis tidak mengukur kemiripan hasil AI nyata; penilaian visual tetap
-memerlukan foto uji dan referensi wajah yang disepakati klien.
+memerlukan foto nyata 1–4 pengunjung dan referensi wajah yang disepakati klien,
+termasuk pemeriksaan jumlah orang, pakaian, arsitektur, koleksi dan diorama.
