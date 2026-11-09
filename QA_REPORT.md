@@ -2,6 +2,38 @@
 
 Tanggal pemeriksaan awal: 22 Oktober 2026.
 
+## Referensi wajah dan latar vintage — 9 November 2026
+
+Pembersihan sesudah revisi menghapus 214 berkas aset publik yang tidak dirujuk
+serta 19 gambar alternatif revisi dan enam berkas metadata `.DS_Store` dari
+`0_Revisi` (sekitar 381 MiB). Katalog tetap memiliki 26 aset produksi; sepuluh
+JPG dan tujuh PNG sumber revisi beserta PNG ruang mengajar bersih tetap cukup
+untuk rebuild. Script preview lama ikut dihapus. Hasil pengunjung/galeri dan
+konfigurasi server tidak menjadi sasaran pembersihan ini.
+
+- Lima tokoh (Kartini, Sosrokartono, Kardinah, Roekmini, Sosroningrat) memakai
+  acuan wajah dan tubuh dari `0_Revisi`; referensi Adhiningrat dan Soesalit tetap.
+- Delapan latar vintage teroptimasi menggantikan input lingkungan dan preview
+  tempat. Ruang mengajar dibersihkan dari patung manusia memakai built-in
+  `image_gen`; sumber dan prompt disimpan di `output/revision-assets/`.
+- Gemini dan kedua jalur OpenRouter mengirim foto pengunjung, wajah utama,
+  tubuh tokoh yang sama bila tersedia, lalu lingkungan. Tes membandingkan byte
+  input, urutan, label, dan kegagalan aman saat salah satu aset hilang.
+- Prompt menegaskan prioritas wajah utama, hanya satu tokoh, lingkungan sesuai
+  referensi, dan vintage hangat tanpa mengaburkan wajah. Rasio sumber dipertahankan;
+  output tetap 3:2 dengan penyesuaian tepi, bukan peregangan.
+- Pemilihan tempat tidak lagi membaca `characterIds` yang tidak ada pada adegan
+  khusus. Kembali dari kamera menuju tempat dengan pilihan tersimpan. Beranda
+  portrait/mobile diperbaiki agar gambar tidak menutupi judul/tombol.
+- `npm run check` dan **37 tes Node lulus**. Audit revisi lulus pada
+  1366×768, 1080×1920, dan 390×844: **48 pemilihan tempat**, ketujuh tokoh di
+  setiap ukuran, refresh/back, semua gambar termuat, nol error browser, dan satu
+  alur kamera hingga hasil simulasi. Ada 17 screenshot serta JSON di
+  `output/playwright/revisions/`; ulangi dengan `npm run audit:revisions`.
+- Batas verifikasi: kamera, AI, dan SMTP pada tes memakai simulasi. Belum ada
+  generasi AI nyata untuk menilai peningkatan kemiripan dan belum deploy ke VPS.
+  Referensi aset dan prompt lengkap: [docs/reference-backgrounds.md](docs/reference-backgrounds.md).
+
 ## Beranda, urutan pilihan, dan batas grup — 27 Oktober 2026
 
 - Beranda dirapikan menjadi dua kolom: teks, empat logo dengan urutan yang sama,

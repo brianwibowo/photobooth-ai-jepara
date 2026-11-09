@@ -290,7 +290,7 @@ h1 em, h2 em { color: var(--coral); font-weight: 500; }
 @media (min-width: 701px) and (max-aspect-ratio: 4/5) {
   .picker-screen > .flow-heading { display: block; }
   .picker-screen .flow-identity { margin: 0 0 24px; }
-  .home.screen-content { grid-template-columns: 1fr; align-content: center; }
+  .home.screen-content { grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr); gap: 32px; }
   .hero-copy { max-width: none; padding-top: 24px; }
   .home-static-catalog { padding-top: 24px; }
   .horizontal-flow { display: flex; align-items: stretch; gap: 40px; }
@@ -317,15 +317,15 @@ h1 em, h2 em { color: var(--coral); font-weight: 500; }
   .flow-heading h1 { font-size: 36px; }
   .screen-content { padding: 28px 22px; }
   .home.screen-content { display: flex; flex-direction: column; align-items: stretch; }
-  .home.screen-content { height: auto; min-height: 100dvh; overflow: visible; }
-  .hero-copy { padding-top: 8px; }
+  .home.screen-content { height: auto; min-height: 100dvh; max-height: none; overflow: visible; }
+  .hero-copy { padding-top: 8px; flex-shrink: 0; }
   .home-title-top > span { font-size: 42px; }
   .home-title > em { font-size: 54px; }
   .home-brand { width: 52px; height: 52px; }
   .home-title-rule { width: 88%; }
   .home-museum-art { margin-top: 22px; }
   .home-start { min-width: 160px; min-height: 50px; padding-left: 24px; font-size: 19px; }
-  .home-static-catalog { height: 420px; padding-top: 18px; }
+  .home-static-catalog { height: 420px; padding-top: 18px; flex-shrink: 0; }
   .home-story-card { height: 126px; border-radius: 10px; }
   .flow-heading > p:last-of-type { font-size: 16px; }
   .scene-grid { grid-template-columns: 1fr; gap: 14px; }

@@ -81,7 +81,7 @@ test('character-specific scene rejects the old shared activity for Soesalit', as
   const response = await f.post(1, { scene: 'soesalit-dakon', character: 'soesalit' })
   assert.equal(response.status, 200)
   const result = await response.json()
-  assert.deepEqual(result.scene, { id: 'soesalit-dakon', name: 'Bermain Dakon', location: 'Aula museum', activity: 'Bermain dakon/congklak', place: 'Aula museum' })
+  assert.deepEqual(result.scene, { id: 'soesalit-dakon', name: 'Bermain Dakon', location: 'Pendopo museum', activity: 'Bermain dakon/congklak', place: 'Pendopo museum' })
   assert.equal(f.calls.at(-1).sceneId, 'soesalit-dakon')
   assert.equal((await f.post(1, { scene: 'kartini-membatik', character: 'soesalit' })).status, 400)
 })

@@ -12,8 +12,6 @@
 !server/**
 !public/
 !public/**
-# The UI uses optimized WebP derivatives for previews. Keep the original PNG
-# sources out of the production image so the first load stays small.
-public/assets/tokoh_pahlawan/**/*.png
-public/assets/tokoh_pahlawan/**/referensi/**
+# Only active production assets live in public; raw revision sources stay
+# outside this allowlist and are not needed by the Docker build.
 public/assets/**/.DS_Store

@@ -1,6 +1,6 @@
 # Photobooth AI Museum R.A. Kartini
 
-A lightweight, museum-first photobooth web app for a 2 GB VPS. Visitors choose a place, then a historical figure on separate screens, capture and confirm a photo, and receive an AI-generated PNG result with a private QR download link. Visitor count can optionally be selected on the camera screen; names and gender are not requested.
+A lightweight, museum-first photobooth web app for a 2 GB VPS. Visitors choose a historical figure, then an activity/place on separate screens, capture and confirm a photo, and receive an AI-generated PNG result with a private QR download link. Visitor count can optionally be selected on the camera screen; names and gender are not requested.
 
 ## Stack
 
@@ -75,41 +75,57 @@ logo ditempatkan di konten utama. Layout mendukung kiosk landscape dan portrait.
 Hitung mundur pengambilan foto berlangsung tujuh detik; ambil ulang memulai
 hitung mundur baru dan keluar dari kamera membatalkan pengambilan.
 
-Pada beranda landscape, teks dan ilustrasi gerbang museum mengisi sisi kiri,
-sedangkan galeri hasil terbaru mengisi sisi kanan. Galeri memuat maksimal delapan
-foto dan bergulir otomatis secara berulang; preferensi reduced motion menghentikan
-gerak otomatis. Tombol **Lihat galeri** tetap tersedia di beranda dan hasil.
+Pada beranda landscape, teks dan gerbang vintage museum mengisi sisi kiri,
+sedangkan ilustrasi lokasi vintage mengisi sisi kanan. Kartu beranda memakai
+aset statis, bukan foto pengunjung atau contoh wajah tokoh versi lama.
+Tombol **Lihat galeri** tetap tersedia di beranda dan hasil untuk membuka
+delapan hasil AI terbaru.
 Teks loading berganti setiap lima detik selama permintaan AI masih berjalan,
 tanpa mengklaim persentase atau tahap internal provider. Hitung mundur QR
 ditampilkan dengan hijau tebal.
 
 Katalog di `src/data.js` memakai folder berikut di `public/assets`:
 
-- `backgrounds`: referensi latar kosong untuk input AI; versi membatik dan ruang
-  gagasan menghapus orang contoh agar tidak ikut terbawa ke hasil. File lama disimpan.
-- `scene-previews`: tiga thumbnail utuh dari PNG sumber untuk kartu pemilihan
-  tempat; tidak memakai gambar reference yang memiliki bagian blur.
+- `revisions-2026-11/characters`: acuan wajah dan tubuh terpisah untuk Kartini,
+  Sosrokartono, Kardinah, Roekmini, dan Sosroningrat, dari sumber `0_Revisi`.
+- `revisions-2026-11/backgrounds`: delapan latar vintage. Ruang mengajar memakai
+  versi tanpa patung manusia. Kartu tempat memakai latar yang sama dengan input AI.
 - `logo`: logo Jawa Tengah, Rembang, museum, dan Museum di Hatiku.
-- `tokoh_pahlawan`: tujuh tokoh; `display.webp` untuk ilustrasi pengalaman dan
-  `reference.webp` untuk kartu tokoh serta referensi identitas AI. PNG adegan dan
-  folder `referensi` tetap menjadi pustaka sumber.
+- `tokoh_pahlawan`: hanya empat WebP aktif milik Adhiningrat dan Soesalit,
+  masing-masing `display.webp` dan `reference.webp`, yang tetap dipakai tanpa
+  penggantian.
+
+Set produksi berisi 26 berkas: sepuluh acuan wajah/tubuh baru, delapan latar
+vintage, empat logo, dan empat gambar dua tokoh yang tidak direvisi. Latar lama,
+thumbnail tempat lama, PNG adegan, folder referensi lama, serta gambar lima tokoh
+versi sebelumnya telah dihapus.
 
 Tempat dan tokoh tidak dipilih otomatis pada sesi baru. Tombol lanjut aktif
 setelah pengunjung memilih sendiri. Pilihan yang sudah dibuat tetap tersimpan
 ketika kembali ke langkah sebelumnya.
 
-Preview dapat dibangun ulang dengan `npm run assets:previews` dari PNG sumber
-yang disimpan di repository. File WebP hasilnya ikut di-commit agar build Docker
-tidak perlu membawa pustaka sumber yang besar.
+Turunan revisi dapat dibangun ulang dengan `npm run assets:revisions` dari
+`0_Revisi` dan `output/revision-assets/07-ruang-mengajar-empty.png`. Script
+mempertahankan rasio gambar; tidak meregenerasi wajah. `0_Revisi` menyimpan
+sepuluh JPG portrait terpilih dan tujuh PNG latar yang digunakan untuk rebuild.
+Alternatif portrait yang tidak dipakai dan ruang mengajar asli berisi patung
+telah dihapus; sumber ruang mengajar bersih beserta prompt editnya tetap ada di
+`output/revision-assets/`. Script dan perintah `assets:previews` versi lama
+sudah dihapus. File WebP produksi disimpan di `public/assets`, sehingga Docker
+tidak perlu membawa sumber revisi atau menjalankan generasi gambar saat build.
 
-Kartu tempat difilter berdasarkan `sceneIds` pada tokoh yang sudah dipilih, sehingga
-urutan interaksi selalu tokoh lalu tempat. Saat ini semua tokoh tersedia pada ketiga
-latar yang memiliki aset lengkap. Mengganti tokoh mengosongkan tempat sebelumnya.
+Kartu tempat memakai katalog aktivitas per tokoh, sehingga urutan interaksi
+selalu tokoh lalu tempat. Ada 16 aktivitas dengan 1–3 pilihan per tokoh;
+tiga ID tempat versi lama tetap dikenali untuk sesi/hasil tersimpan.
+Mengganti tokoh mengosongkan tempat sebelumnya.
 Soesalit mengikuti referensi anak, termasuk pada prompt generasi.
 Jalankan `npm run check` untuk mengecek keberadaan aset, relasi katalog, dan build.
 
-Referensi generasi selalu berurutan: foto pengunjung, portrait satu tokoh
-pilihan, lalu latar kosong. Model diminta mempertahankan semua pengunjung dari
+Referensi generasi selalu berurutan: foto pengunjung, wajah tokoh pilihan,
+acuan tubuh/pakaian tokoh yang sama jika tersedia, lalu latar vintage.
+Lima tokoh revisi memakai empat gambar; Adhiningrat dan Soesalit tetap memakai
+tiga. Acuan wajah menjadi prioritas identitas; tubuh bukan orang tambahan.
+Model diminta mempertahankan semua pengunjung dari
 foto, ditambah tepat satu tokoh; nama museum tidak berarti menambah Kartini.
 Saat jumlah tidak diisi, tidak ada default satu orang. Referensi wajib yang
 hilang menghasilkan error, bukan fallback ke ilustrasi berisi orang contoh.
@@ -241,6 +257,7 @@ respected; local fallback images are excluded.
 npm run check
 npm test
 npm run audit:ui
+npm run audit:revisions
 ```
 
 Audit UI memerlukan modul `playwright` dan browser Chromium yang tersedia di
@@ -251,3 +268,9 @@ foto sintetis, kamera simulasi, provider simulasi, dan SMTP simulasi. Tidak
 mengirim generasi berbayar atau email nyata. JSON dan screenshot keluar ke
 `audit-results/` (diabaikan Git). Laporan terperinci dan batas verifikasi ada di
 [docs/AUDIT_2026-10-23.md](docs/AUDIT_2026-10-23.md).
+
+Audit revisi memeriksa ketujuh tokoh dan seluruh 16 kartu tempat pada landscape,
+portrait, dan mobile, termasuk refresh, tombol kembali, gambar, dan satu alur
+foto hingga hasil simulasi. Screenshot/JSON berada di `output/playwright/revisions/`.
+Audit otomatis tidak mengukur kemiripan hasil AI nyata; penilaian visual tetap
+memerlukan foto uji dan referensi wajah yang disepakati klien.

@@ -14,7 +14,8 @@
     "email:verify": "node server/verify-email.js",
     "test": "node --test test/*.test.js",
     "audit:ui": "node scripts/audit-ui.mjs",
-    "assets:previews": "node scripts/build-scene-previews.mjs"
+    "audit:revisions": "node scripts/audit-revisions.mjs",
+    "assets:revisions": "node scripts/build-revision-assets.mjs"
   },
   "dependencies": {
     "better-sqlite3": "^11.10.0",

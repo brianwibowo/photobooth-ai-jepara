@@ -11,7 +11,7 @@ import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { characters, sceneCatalog, getCharacter, getSceneForCharacter } from '../src/data.js'
 import { createPhotoEmailService } from './photo-email.js'
-import { buildGenerationPrompt } from './generation-prompt.js'
+import { buildGenerationPrompt, generationReferenceLabels } from './generation-prompt.js'
 import { createGenerationJobs } from './generation-jobs.js'
 import { resultFilename } from './result-filename.js'
 import { MAX_VISITORS } from '../src/config.js'
@@ -264,22 +264,22 @@ export function createApp(options = {}) {
 
   async function imageData(relativePath) {
     const buffer = await fs.readFile(path.join(root, relativePath))
-    const optimized = await sharp(buffer).resize({ width: 1024, withoutEnlargement: true }).jpeg({ quality: 86 }).toBuffer()
+    const optimized = await sharp(buffer).resize({ width: 1024, withoutEnlargement: true }).jpeg({ quality: 92 }).toBuffer()
     return { data: optimized.toString('base64'), mimeType: 'image/jpeg' }
   }
 
   async function prepareGenerationReferences({ photoBuffer, character, scene }) {
     // Never fall back to promotional previews: those may contain sample people.
-    const required = [character.reference, scene.background]
+    const required = [character.reference, ...(character.bodyReference ? [character.bodyReference] : []), scene.background]
     for (const asset of required) {
       if (!asset?.startsWith('/assets/') || !fsSync.existsSync(path.join(root, 'public', asset))) {
         throw Object.assign(new Error('Referensi tokoh atau latar kosong belum tersedia.'), { code: 'REFERENCE_MISSING' })
       }
     }
     const visitor = await sharp(photoBuffer).rotate().resize({ width: 1536, withoutEnlargement: true }).jpeg({ quality: 88 }).toBuffer()
-    const charRef = await imageData(path.join('public', character.reference))
-    const sceneRef = await imageData(path.join('public', scene.background))
-    return { visitor, charRef, sceneRef }
+    const images = [{ data: visitor.toString('base64'), mimeType: 'image/jpeg' }, ...await Promise.all(required.map((asset) => imageData(path.join('public', asset))))]
+    const labels = generationReferenceLabels(character)
+    return images.map((image, index) => ({ ...image, label: labels[index] }))
   }
 
   async function callGeminiModel({ model, apiKey, inputParts }) {
@@ -307,16 +307,11 @@ export function createApp(options = {}) {
     const configuredModel = process.env.GEMINI_MODEL || DEFAULT_MODEL
     const scene = getSceneForCharacter(sceneId, characterId)
     const character = characterMap[characterId] || getCharacter(characterId)
-    const { visitor, charRef, sceneRef } = await prepareGenerationReferences({ photoBuffer, character, scene })
+    const references = await prepareGenerationReferences({ photoBuffer, character, scene })
     const prompt = buildGenerationPrompt({ scene, character, people })
     const inputParts = [
       { text: prompt },
-      { text: 'REFERENCE 1 — VISITOR PHOTO. This is the only source of visitor identities and count. Preserve every visitor exactly once.' },
-      { inline_data: { mime_type: 'image/jpeg', data: visitor.toString('base64') } },
-      { text: `REFERENCE 2 — ONLY THE SELECTED FIGURE: ${character.name}. Add this person exactly once.` },
-      { inline_data: { mime_type: charRef.mimeType, data: charRef.data } },
-      { text: 'REFERENCE 3 — EMPTY MUSEUM ENVIRONMENT. Architecture and lighting only; no people to copy.' },
-      { inline_data: { mime_type: sceneRef.mimeType, data: sceneRef.data } },
+      ...references.flatMap(({ label, data, mimeType }) => [{ text: label }, { inline_data: { mime_type: mimeType, data } }]),
     ]
     return await callGeminiModel({ model: configuredModel, apiKey, inputParts })
   }
@@ -328,7 +323,7 @@ export function createApp(options = {}) {
 
     const scene = getSceneForCharacter(sceneId, characterId)
     const character = characterMap[characterId] || getCharacter(characterId)
-    const { visitor, charRef, sceneRef } = await prepareGenerationReferences({ photoBuffer, character, scene })
+    const references = await prepareGenerationReferences({ photoBuffer, character, scene })
     const prompt = buildGenerationPrompt({ scene, character, people })
 
     const isImagesEndpoint = configuredModel.includes('gpt-image') ||
@@ -342,15 +337,7 @@ export function createApp(options = {}) {
     let response
     if (isImagesEndpoint) {
       console.log(`Generating image using OpenRouter /api/v1/images (${configuredModel})...`)
-      const inputReferences = [
-        { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${visitor.toString('base64')}` } }
-      ]
-      if (charRef) {
-        inputReferences.push({ type: 'image_url', image_url: { url: `data:${charRef.mimeType};base64,${charRef.data}` } })
-      }
-      if (sceneRef) {
-        inputReferences.push({ type: 'image_url', image_url: { url: `data:${sceneRef.mimeType};base64,${sceneRef.data}` } })
-      }
+      const inputReferences = references.map(({ mimeType, data }) => ({ type: 'image_url', image_url: { url: `data:${mimeType};base64,${data}` } }))
 
       response = await fetchImpl('https://openrouter.ai/api/v1/images', {
         method: 'POST',
@@ -362,7 +349,7 @@ export function createApp(options = {}) {
         },
         body: JSON.stringify({
           model: configuredModel,
-          prompt: prompt,
+          prompt: [prompt, ...references.map(({ label }) => label)].join('\n\n'),
           input_references: inputReferences,
           aspect_ratio: '3:2',
           quality: 'high',
@@ -374,14 +361,11 @@ export function createApp(options = {}) {
     } else {
       const contentParts = [
         { type: 'text', text: prompt },
-        { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${visitor.toString('base64')}` } }
+        ...references.flatMap(({ label, mimeType, data }) => [
+          { type: 'text', text: label },
+          { type: 'image_url', image_url: { url: `data:${mimeType};base64,${data}` } },
+        ]),
       ]
-      if (charRef) {
-        contentParts.push({ type: 'image_url', image_url: { url: `data:${charRef.mimeType};base64,${charRef.data}` } })
-      }
-      if (sceneRef) {
-        contentParts.push({ type: 'image_url', image_url: { url: `data:${sceneRef.mimeType};base64,${sceneRef.data}` } })
-      }
       console.log(`Generating image using OpenRouter /api/v1/chat/completions (${configuredModel})...`)
       response = await fetchImpl('https://openrouter.ai/api/v1/chat/completions', {
         method: 'POST',

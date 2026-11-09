@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url'
 import { characters, scenes, characterScenes, logos, homeStories, getScenesForCharacter } from '../src/data.js'
 
 const paths = new Set([
-  ...characters.flatMap(({ image, reference }) => [image, reference]),
+  ...characters.flatMap(({ image, reference, bodyReference }) => [image, reference, ...(bodyReference ? [bodyReference] : [])]),
   ...scenes.flatMap(({ image, background }) => [image, background]),
   ...characters.flatMap(({ id }) => getScenesForCharacter(id).flatMap(({ image, background }) => [image, background])),
   ...homeStories.flatMap(({ images }) => images),

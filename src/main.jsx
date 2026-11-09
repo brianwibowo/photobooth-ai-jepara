@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import QRCode from 'qrcode'
-import { characters, scenes, logos, homeStories, getSceneForCharacter, getScenesForCharacter } from './data'
+import { characters, logos, homeBackground, homeStories, getSceneForCharacter, getScenesForCharacter } from './data'
 import './styles.css'
 import { IDLE_MS, readSnapshot, writeSnapshot, clearSnapshot, savePhoto, loadPhoto, removePhoto, cleanupPhotos } from './session-store.js'
 
@@ -179,11 +179,10 @@ function App() {
   }
   function begin() { snapshotRef.current = null; clearSnapshot(); void removePhoto(sessionIdRef.current).catch(() => {}); sessionIdRef.current = crypto.randomUUID(); setRequestId(null); stopCamera(); setResult(null); replacePhoto(null); setPhotoFile(null); setSceneId(null); setPeople(null); setCharacterId(null); go('character') }
   function chooseScene(id) {
-    const selected = characterId ? getSceneForCharacter(id, characterId) : scenes.find((item) => item.id === id)
+    const selected = characterId && getScenesForCharacter(characterId).find((item) => item.id === id)
     if (!selected) return
     if (sceneId !== id) setRequestId(null)
     setSceneId(id)
-    if (!selected.characterIds.includes(characterId)) setCharacterId(null)
   }
   async function startCamera() {
     stopCamera()
@@ -339,7 +338,7 @@ function App() {
     {screen === 'home' && <Home onStart={begin} onGallery={openGallery} />}
     {screen === 'scene' && <ScenePicker scene={scene} character={character} onSelect={chooseScene} onNext={() => { if (scene && character) go('camera') }} onBack={() => go('character')} />}
     {screen === 'character' && <CharacterPicker character={character} onSelect={(id) => { if (id !== characterId) { setRequestId(null); setSceneId(null) }; setCharacterId(id) }} onNext={() => { if (character) go('scene') }} onBack={newSession} />}
-    {screen === 'camera' && <CameraScreen people={people} onPeople={(value) => { setRequestId(null); setPeople(value) }} videoRef={videoRef} cameraReady={cameraReady} onStart={startCamera} onStop={stopCamera} onCapture={capturePhoto} onBack={() => { stopCamera(); go('character') }} error={error || generationNotice} />}
+    {screen === 'camera' && <CameraScreen people={people} onPeople={(value) => { setRequestId(null); setPeople(value) }} videoRef={videoRef} cameraReady={cameraReady} onStart={startCamera} onStop={stopCamera} onCapture={capturePhoto} onBack={() => { stopCamera(); go('scene') }} error={error || generationNotice} />}
     {screen === 'confirm' && <ConfirmScreen people={people} photo={photo} scene={scene} character={character} onBack={() => go('camera')} onGenerate={generate} error={error} />}
     {screen === 'generating' && <GeneratingScreen photo={photo} notice={generationNotice} onBack={() => { generateControllerRef.current?.abort(); generateControllerRef.current = null; setIsBusy(false); go(photoFile ? 'confirm' : 'camera') }} />}
     {screen === 'result' && <ResultScreen result={result} qrData={qrData} remaining={resultRemaining} notice={error} onNew={newSession} onGallery={openGallery} onPrint={() => window.print()} />}
@@ -380,7 +379,7 @@ function Home({ onStart, onGallery }) {
   return <main className="home screen-content">
     <section className="hero-copy">
       <div className="home-title"><div className="home-eyebrow">PHOTOBOOTH AI</div><div className="home-title-top"><span>Hadir dalam</span><img className="home-brand" src="/assets/logo/logo-museum.webp" alt="Museum R.A. Kartini Rembang" /></div><em>Kisah Kartini</em><div className="home-title-rule" aria-hidden="true"><span>✦</span></div></div>
-      <div className="home-museum-art"><img src="/assets/backgrounds/gerbang.webp" alt="Gerbang Museum R.A. Kartini Rembang" /></div>
+      <div className="home-museum-art"><img src={homeBackground} alt="Gerbang Museum R.A. Kartini Rembang" /></div>
       <div className="home-actions">
         <button className="home-start" onClick={onStart}>MULAI <span aria-hidden="true">▶</span></button>
         <button className="home-gallery" onClick={onGallery}>Lihat Galeri <span aria-hidden="true">↗</span></button>
