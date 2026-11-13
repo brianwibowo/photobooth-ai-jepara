@@ -6,11 +6,12 @@ import path from 'node:path'
 import Database from 'better-sqlite3'
 import sharp from 'sharp'
 import { createApp } from '../server/index.js'
+import { mockCastValidation } from './helpers/mock-cast.js'
 
 test('gallery returns at most the eight newest eligible results, including when clients request more', async (t) => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'gallery-limit-test-'))
   const current = new Date('2026-10-23T04:00:00Z')
-  const instance = createApp({ dataDir: dir, now: () => current, emailOptions: { env: {}, autoStart: false } })
+  const instance = createApp({ dataDir: dir, validateCast: mockCastValidation, now: () => current, emailOptions: { env: {}, autoStart: false } })
   const server = instance.app.listen(0, '127.0.0.1')
   await new Promise((resolve) => server.once('listening', resolve))
   t.after(async () => { await new Promise((resolve) => server.close(resolve)); await instance.close(); await fs.rm(dir, { recursive: true, force: true }) })
@@ -47,7 +48,7 @@ test('gallery includes both AI providers, repairs legacy OpenRouter rows once, a
   await fs.mkdir(path.join(dir, 'generated'))
   const image = await sharp({ create: { width: 640, height: 480, channels: 3, background: 'white' } }).png().toBuffer()
   for (const id of [1, 2, 3, 4]) await sharp(image).webp().toFile(path.join(dir, 'generated', `${id}-thumb.webp`))
-  let instance = createApp({ dataDir: dir, now: () => now, emailOptions: { env: {}, autoStart: false } })
+  let instance = createApp({ dataDir: dir, validateCast: mockCastValidation, now: () => now, emailOptions: { env: {}, autoStart: false } })
   let server = instance.app.listen(0, '127.0.0.1')
   await new Promise((resolve) => server.once('listening', resolve))
   const base = () => `http://127.0.0.1:${server.address().port}`
@@ -59,7 +60,7 @@ test('gallery includes both AI providers, repairs legacy OpenRouter rows once, a
   // A later decision to hide a repaired row must survive subsequent restarts.
   instance.db.prepare('UPDATE results SET is_public = 0 WHERE id = 1').run()
   await new Promise((resolve) => server.close(resolve)); await instance.close()
-  instance = createApp({ dataDir: dir, now: () => now, emailOptions: { env: {}, autoStart: false } })
+  instance = createApp({ dataDir: dir, validateCast: mockCastValidation, now: () => now, emailOptions: { env: {}, autoStart: false } })
   server = instance.app.listen(0, '127.0.0.1')
   await new Promise((resolve) => server.once('listening', resolve))
   assert.equal((await (await fetch(base() + '/api/gallery')).json()).items.length, 1)
@@ -71,7 +72,7 @@ test('a new OpenRouter result is published as a gallery thumbnail without exposi
   const previousKey = process.env.OPENROUTER_API_KEY
   process.env.OPENROUTER_API_KEY = 'test-only'
   const image = await sharp({ create: { width: 640, height: 480, channels: 3, background: 'white' } }).png().toBuffer()
-  const instance = createApp({ dataDir: dir, generateWithOpenRouter: async () => image, emailOptions: { env: {}, autoStart: false } })
+  const instance = createApp({ dataDir: dir, validateCast: mockCastValidation, generateWithOpenRouter: async () => image, emailOptions: { env: {}, autoStart: false } })
   const server = instance.app.listen(0, '127.0.0.1')
   await new Promise((resolve) => server.once('listening', resolve))
   t.after(async () => {

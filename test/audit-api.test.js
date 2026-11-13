@@ -6,6 +6,7 @@ import path from 'node:path'
 import crypto from 'node:crypto'
 import sharp from 'sharp'
 import { createApp } from '../server/index.js'
+import { mockCastValidation } from './helpers/mock-cast.js'
 import { scenes, characters, characterScenes, getSceneForCharacter } from '../src/data.js'
 
 async function fixture(t, overrides = {}) {
@@ -14,7 +15,7 @@ async function fixture(t, overrides = {}) {
   const calls = []
   const generate = async (args) => { calls.push(args); return overrides.generate ? overrides.generate(args) : image }
   let time = Date.now()
-  const options = { dataDir: dir, now: () => new Date(time), minIntervalMs: -1, rateLimit: 1000, generateWithGemini: generate, generateWithOpenRouter: generate, emailOptions: { env: {}, autoStart: false }, ...overrides.options }
+  const options = { dataDir: dir, validateCast: mockCastValidation, now: () => new Date(time), minIntervalMs: -1, rateLimit: 1000, generateWithGemini: generate, generateWithOpenRouter: generate, emailOptions: { env: {}, autoStart: false }, ...overrides.options }
   const instance = createApp(options)
   const server = instance.app.listen(0, '127.0.0.1')
   await new Promise((resolve) => server.once('listening', resolve))

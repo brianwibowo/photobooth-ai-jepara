@@ -5,13 +5,14 @@ import os from 'node:os'
 import path from 'node:path'
 import sharp from 'sharp'
 import { createApp } from '../server/index.js'
+import { mockCastValidation } from './helpers/mock-cast.js'
 
 test('result continuation reactivates the QR once for 15 seconds, then expires without another grace window', async (t) => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'result-session-test-'))
   let current = Date.parse('2026-10-23T04:00:00Z')
   const image = await sharp({ create: { width: 640, height: 480, channels: 3, background: 'white' } }).png().toBuffer()
   const env = { EMAIL_ENABLED: 'true', EMAIL_FROM: 'museum@example.test' }
-  const instance = createApp({ dataDir: dir, now: () => new Date(current), generateWithOpenRouter: async () => image, generateWithGemini: async () => image, emailOptions: { env, transport: { sendMail: async () => ({ accepted: ['v@example.test'] }) }, autoStart: false } })
+  const instance = createApp({ dataDir: dir, validateCast: mockCastValidation, now: () => new Date(current), generateWithOpenRouter: async () => image, generateWithGemini: async () => image, emailOptions: { env, transport: { sendMail: async () => ({ accepted: ['v@example.test'] }) }, autoStart: false } })
   const server = instance.app.listen(0, '127.0.0.1')
   await new Promise((resolve) => server.once('listening', resolve))
   t.after(async () => { await new Promise((resolve) => server.close(resolve)); await instance.close(); await fs.rm(dir, { recursive: true, force: true }) })

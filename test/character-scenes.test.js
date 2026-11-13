@@ -137,7 +137,7 @@ test('only the five supplied characters receive separate new face and body refer
     assert.equal(character.reference, `${characterRoot}${revisedFolders[id]}/reference-2026-11.webp`)
     assert.equal(character.bodyReference, `${characterRoot}${revisedFolders[id]}/body-2026-11.webp`)
     assert.equal(character.image, character.bodyReference)
-    assert.notEqual(character.reference, character.bodyReference, 'Face detail and full-body clothing have separate inputs')
+    assert.notEqual(character.reference, character.bodyReference, 'Primary generation reference and UI body asset remain separate files')
   }
   const unchanged = {
     adhiningrat: {

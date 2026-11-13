@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url'
 import express from 'express'
 import sharp from 'sharp'
 import { createApp } from '../server/index.js'
+import { mockCastValidation } from '../test/helpers/mock-cast.js'
 import { SESSION_KEY } from '../src/session-store.js'
 
 const require = createRequire(import.meta.url)
@@ -38,7 +39,7 @@ const generate = async (args) => {
   if (hold) await new Promise((resolve) => { release = resolve })
   return fixture((args.people || sourceGroup) + 1)
 }
-const instance = createApp({ dataDir: dir, now: () => new Date(current), minIntervalMs: -1, rateLimit: 1000, generateWithOpenRouter: generate, generateWithGemini: generate, emailOptions: { env: { EMAIL_ENABLED: 'true', EMAIL_FROM: 'museum@example.test' }, transport: { sendMail: async () => ({ accepted: ['audit@example.test'] }) }, autoStart: false } })
+const instance = createApp({ dataDir: dir, validateCast: mockCastValidation, now: () => new Date(current), minIntervalMs: -1, rateLimit: 1000, generateWithOpenRouter: generate, generateWithGemini: generate, emailOptions: { env: { EMAIL_ENABLED: 'true', EMAIL_FROM: 'museum@example.test' }, transport: { sendMail: async () => ({ accepted: ['audit@example.test'] }) }, autoStart: false } })
 instance.app.use(express.static(path.join(root, 'dist')))
 const server = instance.app.listen(0, '127.0.0.1')
 await new Promise((resolve) => server.once('listening', resolve))

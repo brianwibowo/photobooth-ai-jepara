@@ -12,6 +12,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import { characters, sceneCatalog, getCharacter, getSceneForCharacter, BACKGROUND_STYLES, DEFAULT_BACKGROUND_STYLE } from '../src/data.js'
 import { createPhotoEmailService } from './photo-email.js'
 import { buildGenerationPrompt, generationReferenceLabels } from './generation-prompt.js'
+import { createCastValidator } from './cast-validation.js'
 import { createGenerationJobs } from './generation-jobs.js'
 import { resultFilename } from './result-filename.js'
 import { MAX_VISITORS } from '../src/config.js'
@@ -181,6 +182,14 @@ export function createApp(options = {}) {
   const photoEmail = createPhotoEmailService({ db, generatedDir, clock: () => now().getTime(), ...options.emailOptions })
   const fetchImpl = options.fetchImpl || globalThis.fetch
   const publicBaseUrl = (options.publicBaseUrl || process.env.PUBLIC_BASE_URL || `http://localhost:${process.env.PORT || 8787}`).replace(/\/$/, '')
+  const validateCast = options.validateCast || createCastValidator({
+    fetchImpl, publicBaseUrl,
+    openRouterApiKey: process.env.OPENROUTER_API_KEY,
+    geminiApiKey: process.env.GEMINI_API_KEY,
+    openRouterModel: process.env.OPENROUTER_CAST_MODEL,
+    geminiModel: process.env.GEMINI_CAST_MODEL,
+    timeoutMs: Number(process.env.CAST_VALIDATION_TIMEOUT_MS || 45000),
+  })
   const maxUploadMb = Number(options.maxUploadMb || process.env.MAX_UPLOAD_MB || DEFAULT_MAX_UPLOAD_MB)
   const maxPixels = Number(options.maxPixels || process.env.MAX_UPLOAD_PIXELS || DEFAULT_MAX_PIXELS)
   const timeoutMs = Number(options.timeoutMs || process.env.GEMINI_TIMEOUT_MS || 150000)
@@ -277,7 +286,9 @@ export function createApp(options = {}) {
 
   async function prepareGenerationReferences({ photoBuffer, character, scene }) {
     // Never fall back to promotional previews: those may contain sample people.
-    const required = [character.reference, ...(character.bodyReference ? [character.bodyReference] : []), scene.background]
+    // Body assets remain available for the selection UI, never as a second
+    // human-bearing input to generation or its visual check.
+    const required = [character.reference, scene.background]
     for (const asset of required) {
       if (!asset?.startsWith('/assets/') || !fsSync.existsSync(path.join(root, 'public', asset))) {
         throw Object.assign(new Error('Referensi tokoh atau latar kosong belum tersedia.'), { code: 'REFERENCE_MISSING' })
@@ -311,13 +322,13 @@ export function createApp(options = {}) {
     return Buffer.from(image, 'base64')
   }
 
-  async function generateWithGemini({ photoBuffer, sceneId, characterId, backgroundStyle, people }) {
+  async function generateWithGemini({ photoBuffer, sceneId, characterId, backgroundStyle, people, references: suppliedReferences }) {
     const apiKey = process.env.GEMINI_API_KEY
     if (!apiKey) throw Object.assign(new Error('missing api key'), { code: 'MISSING_API_KEY' })
     const configuredModel = process.env.GEMINI_MODEL || DEFAULT_MODEL
     const scene = getSceneForCharacter(sceneId, characterId, backgroundStyle)
     const character = characterMap[characterId] || getCharacter(characterId)
-    const references = await prepareGenerationReferences({ photoBuffer, character, scene })
+    const references = suppliedReferences || await prepareGenerationReferences({ photoBuffer, character, scene })
     const prompt = buildGenerationPrompt({ scene, character, people })
     const inputParts = [
       { text: prompt },
@@ -326,14 +337,14 @@ export function createApp(options = {}) {
     return await callGeminiModel({ model: configuredModel, apiKey, inputParts, aspectRatio: scene.outputAspectRatio })
   }
 
-  async function generateWithOpenRouter({ photoBuffer, sceneId, characterId, backgroundStyle, people }) {
+  async function generateWithOpenRouter({ photoBuffer, sceneId, characterId, backgroundStyle, people, references: suppliedReferences }) {
     const apiKey = process.env.OPENROUTER_API_KEY
     if (!apiKey) throw Object.assign(new Error('missing openrouter api key'), { code: 'MISSING_OPENROUTER_KEY' })
     const configuredModel = process.env.OPENROUTER_MODEL || process.env.AI_INFOGRAPHIC_MODEL || 'openai/gpt-image-2.5-flare'
 
     const scene = getSceneForCharacter(sceneId, characterId, backgroundStyle)
     const character = characterMap[characterId] || getCharacter(characterId)
-    const references = await prepareGenerationReferences({ photoBuffer, character, scene })
+    const references = suppliedReferences || await prepareGenerationReferences({ photoBuffer, character, scene })
     const prompt = buildGenerationPrompt({ scene, character, people })
 
     const isImagesEndpoint = configuredModel.includes('gpt-image') ||
@@ -464,6 +475,9 @@ export function createApp(options = {}) {
       ok: true,
       emailAvailable: photoEmail.available,
       mode,
+      castValidation: 'required',
+      openrouterCastModel: process.env.OPENROUTER_CAST_MODEL || 'google/gemini-2.5-flash',
+      geminiCastModel: process.env.GEMINI_CAST_MODEL || 'gemini-2.5-flash',
       openrouterModel: process.env.OPENROUTER_MODEL || process.env.AI_INFOGRAPHIC_MODEL || 'openai/gpt-image-2.5-flare',
       geminiModel: process.env.GEMINI_MODEL || DEFAULT_MODEL
     })
@@ -569,25 +583,26 @@ export function createApp(options = {}) {
     const guestList = safeJson(req.body.guests, [])
     const writtenFiles = []
     try {
-      let output; let provider = 'gemini'
+      let output; let references; let provider = 'gemini'
       try {
+        references = await prepareGenerationReferences({ photoBuffer: req.file.buffer, character, scene })
         if (process.env.OPENROUTER_API_KEY) {
           try {
             console.log('Generating image using OpenRouter models chain...')
-            output = await (options.generateWithOpenRouter || generateWithOpenRouter)({ photoBuffer: req.file.buffer, sceneId, characterId, backgroundStyle, people, guests: guestList })
+            output = await (options.generateWithOpenRouter || generateWithOpenRouter)({ photoBuffer: req.file.buffer, sceneId, characterId, backgroundStyle, people, guests: guestList, references })
             provider = 'openrouter'
           } catch (orErr) {
             console.warn('OpenRouter generation failed:', orErr?.code || orErr?.message)
             if (process.env.GEMINI_API_KEY) {
               console.log('Falling back to Google Gemini direct...')
-              output = await (options.generateWithGemini || generateWithGemini)({ photoBuffer: req.file.buffer, sceneId, characterId, backgroundStyle, people, guests: guestList })
+              output = await (options.generateWithGemini || generateWithGemini)({ photoBuffer: req.file.buffer, sceneId, characterId, backgroundStyle, people, guests: guestList, references })
               provider = 'gemini'
             } else {
               throw orErr
             }
           }
         } else {
-          output = await (options.generateWithGemini || generateWithGemini)({ photoBuffer: req.file.buffer, sceneId, characterId, backgroundStyle, people, guests: guestList })
+          output = await (options.generateWithGemini || generateWithGemini)({ photoBuffer: req.file.buffer, sceneId, characterId, backgroundStyle, people, guests: guestList, references })
           provider = 'gemini'
         }
       } catch (error) {
@@ -611,6 +626,24 @@ export function createApp(options = {}) {
         return reply(502, { error: 'Hasil Gemini tidak valid.', code: 'OUTPUT_INVALID', retryable: true })
       }
       if (!generatedMeta.width || !generatedMeta.height || generatedMeta.width * generatedMeta.height > maxPixels) return reply(502, { error: 'Hasil Gemini tidak valid.', code: 'OUTPUT_INVALID', retryable: true })
+      // Validate before creating any file, download token, QR or public row.
+      // Rejection does not fall back to another generator or spend on a retry.
+      let castValidation = null
+      if (provider !== 'fallback') {
+        try {
+          castValidation = await validateCast({ references, outputBuffer: output, character, scene, people, provider })
+          if (castValidation?.version !== 'closed-cast-v1') throw new Error('Missing validation receipt')
+        } catch (error) {
+          const rejected = error?.code === 'OUTPUT_CAST_REJECTED'
+          console.warn('Output cast validation failed:', rejected ? 'OUTPUT_CAST_REJECTED' : 'OUTPUT_VALIDATION_UNAVAILABLE')
+          return reply(rejected ? 422 : 502, {
+            error: rejected
+              ? 'Hasil belum lolos pemeriksaan tokoh dan pengunjung: ada kemungkinan orang ganda, kurang, atau tidak sesuai. Foto tidak ditampilkan. Silakan coba lagi atau hubungi petugas.'
+              : 'Pemeriksaan hasil foto belum berhasil. Foto tidak ditampilkan. Silakan hubungi petugas sebelum mencoba lagi.',
+            code: rejected ? 'OUTPUT_CAST_REJECTED' : 'OUTPUT_VALIDATION_UNAVAILABLE', retryable: true,
+          })
+        }
+      }
       const token = uniqueToken(); const stem = crypto.randomBytes(16).toString('hex')
       // Keep the generated result lossless and downloadable as PNG. Gallery
       // thumbnails remain WebP to keep the public gallery lightweight.
@@ -625,8 +658,10 @@ export function createApp(options = {}) {
       // Keep the actual selected asset IDs with the result. Later catalog
       // revisions must not relabel a restored photo with a different location.
       const manifest = JSON.stringify({
-        version: 'background-pairs-v2',
-        character: { id: character.id, name: character.name, faceAsset: character.reference, bodyAsset: character.bodyReference || null, revision: character.bodyReference ? '2026-11' : 'legacy' },
+        version: 'single-character-v3',
+        character: { id: character.id, name: character.name, faceAsset: character.reference, bodyAsset: null, revision: character.bodyReference ? '2026-11' : 'legacy' },
+        generationReferenceAssets: [character.reference, scene.background],
+        castValidation,
         scene: { id: scene.id, name: scene.name, location: scene.location, activity: scene.activity, place: scene.place, backgroundStyle, backgroundId: scene.backgroundId, backgroundAssetId: scene.backgroundAssetId, backgroundSha256: scene.backgroundSha256, outputAspectRatio: scene.outputAspectRatio },
         visitorCount: people,
       })

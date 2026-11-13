@@ -68,8 +68,9 @@ Alur utama: **Tokoh → Tempat → Foto → Cek foto → Hasil QR**.
 Tempat dan tokoh dipilih pada layar terpisah. Nama dan jenis kelamin tidak
 diminta. Jumlah pengunjung dapat dipilih secara opsional (1–4) pada layar kamera,
 tanpa menghitung tokoh pilihan. Default "Ikuti foto" menyerahkan acuan jumlah ke
-model berdasarkan foto; ini bukan deteksi wajah otomatis. Bila jumlah dipilih,
-API mengirim angka tersebut sebagai batasan prompt tanpa membutuhkan data tamu. Konfirmasi foto tetap
+model berdasarkan foto. Bila jumlah dipilih, API mengirim angka tersebut sebagai
+batasan tanpa membutuhkan data tamu. Hasil AI kemudian diperiksa dengan model
+vision sebelum diterbitkan; ini bukan penghitungan wajah deterministik. Konfirmasi foto tetap
 tersedia sebelum generasi, termasuk opsi ambil ulang. Header terpisah dihapus;
 logo ditempatkan di konten utama. Layout mendukung kiosk landscape dan portrait.
 Hitung mundur pengambilan foto berlangsung tujuh detik; ambil ulang memulai
@@ -92,7 +93,7 @@ Katalog di `src/data.js` memakai folder berikut di `public/assets`:
 - `tokoh_pahlawan`: acuan lima tokoh revisi berada dalam folder tokoh masing-masing
   sebagai `reference-2026-11.webp` (wajah) dan `body-2026-11.webp` (tubuh/pakaian).
   Kartini, Sosrokartono, Kardinah, Roekmini, dan Sosroningrat masing-masing memakai
-  satu wajah utama serta satu foto tubuh terpilih. Adhiningrat dan Soesalit tetap
+  satu wajah utama untuk AI serta satu foto tubuh terpilih untuk kartu UI. Adhiningrat dan Soesalit tetap
   memakai `display.webp` dan `reference.webp` sebelumnya.
 - `backgrounds/vintage` dan `backgrounds/warna`: sembilan lokasi dengan dua
   varian masing-masing. Kartu tempat memakai varian yang sama dengan input AI.
@@ -142,10 +143,10 @@ Mengganti tokoh mengosongkan tempat sebelumnya.
 Soesalit mengikuti referensi anak, termasuk pada prompt generasi.
 Jalankan `npm run check` untuk mengecek keberadaan aset, relasi katalog, dan build.
 
-Referensi generasi selalu berurutan: foto pengunjung, wajah tokoh pilihan,
-acuan tubuh/pakaian tokoh yang sama jika tersedia, lalu latar dengan nuansa terpilih.
-Lima tokoh revisi memakai empat gambar; Adhiningrat dan Soesalit tetap memakai
-tiga. Acuan wajah menjadi prioritas identitas; tubuh bukan orang tambahan.
+Referensi generasi selalu berurutan: foto pengunjung, satu acuan utama tokoh
+pilihan, lalu latar dengan nuansa terpilih. Semua tujuh tokoh memakai tepat tiga
+gambar. Foto tubuh lima tokoh revisi tetap untuk kartu UI/arsip saja; busana
+yang tidak tampak pada acuan utama dijelaskan melalui teks.
 Model diminta mempertahankan semua pengunjung dari
 foto, ditambah tepat satu tokoh; nama museum tidak berarti menambah Kartini.
 Saat jumlah tidak diisi, tidak ada default satu orang. Referensi wajib yang
@@ -301,3 +302,18 @@ alur foto hingga hasil simulasi. Screenshot/JSON berada di `output/playwright/re
 Audit otomatis tidak mengukur kemiripan hasil AI nyata; penilaian visual tetap
 memerlukan foto nyata 1–4 pengunjung dan referensi wajah yang disepakati klien,
 termasuk pemeriksaan jumlah orang, pakaian, arsitektur, koleksi dan diorama.
+
+## Pemeriksaan tokoh sebelum hasil diterbitkan
+
+Semua tujuh tokoh mengirim tepat tiga gambar ke AI: foto pengunjung, satu
+referensi utama tokoh, dan latar pilihan. Foto tubuh lima tokoh revisi tetap
+tersedia pada UI/arsip, tetapi tidak ikut dikirim sebagai figur kedua.
+
+Satu panggilan vision tambahan dengan key provider yang sama memeriksa jumlah
+pengunjung, satu tokoh pilihan, duplikasi, orang hilang, dan orang tambahan.
+Hasil yang ditolak/tidak pasti atau gagal diperiksa tidak disimpan dan tidak
+mendapat QR maupun masuk galeri. Tidak ada regenerasi otomatis setelah penolakan atau kegagalan validasi.
+Konfigurasi model dan batas waktunya ada di `.env.example`; Compose meneruskan
+`OPENROUTER_CAST_MODEL`, `GEMINI_CAST_MODEL`, dan `CAST_VALIDATION_TIMEOUT_MS`.
+Pemeriksaan AI bisa keliru dan tidak menjamin kemiripan sempurna. Foto lama
+tidak diperiksa ulang otomatis. Lihat [kontrak lengkap](docs/reference-backgrounds.md#closed-cast-check-november-13-2026).

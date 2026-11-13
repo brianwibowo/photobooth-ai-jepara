@@ -8,6 +8,7 @@ import sharp from 'sharp'
 import nodemailer from 'nodemailer'
 import { createPhotoEmailService, normalizeEmail } from '../server/photo-email.js'
 import { createApp } from '../server/index.js'
+import { mockCastValidation } from './helpers/mock-cast.js'
 
 const emailEnv = { EMAIL_ENABLED: 'true', EMAIL_FROM: 'museum@example.test', EMAIL_FROM_NAME: 'Museum R.A. Kartini' }
 async function fixture(t, overrides = {}) {
@@ -143,7 +144,7 @@ test('HTTP result exposes only availability and a token-bound endpoint; email is
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'email-http-test-'))
   const photo = await sharp({ create: { width: 640, height: 480, channels: 3, background: 'white' } }).png().toBuffer()
   const send = async () => photo
-  const instance = createApp({ dataDir: dir, generateWithOpenRouter: send, generateWithGemini: send, emailOptions: { env: emailEnv, transport: { sendMail: async () => ({ accepted: ['v@example.test'] }) }, autoStart: false } })
+  const instance = createApp({ dataDir: dir, validateCast: mockCastValidation, generateWithOpenRouter: send, generateWithGemini: send, emailOptions: { env: emailEnv, transport: { sendMail: async () => ({ accepted: ['v@example.test'] }) }, autoStart: false } })
   const server = instance.app.listen(0, '127.0.0.1')
   await new Promise((r) => server.once('listening', r))
   t.after(async () => { await new Promise((r) => server.close(r)); await instance.close(); await fs.rm(dir, { recursive: true, force: true }) })

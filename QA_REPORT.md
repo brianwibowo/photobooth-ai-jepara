@@ -1,5 +1,44 @@
 # QA report — Photobooth AI Museum R.A. Kartini
 
+## 13 November 2026 — duplicate-character correction
+
+A client-supplied thumbnail shows one male visitor and two similar Kartini
+figures. The original capture and production request receipt are unavailable
+locally, so the precise incident cause has not been established. The audit
+confirmed that five revised characters sent two human-bearing views (portrait
+and body), and that valid image output was published without a visual cast check.
+
+All seven characters now send exactly three images: visitors, one primary
+character reference, and the chosen background. Body assets remain for UI/source
+provenance. A mandatory, separate vision assessment checks count, duplicate or
+missing visitors, exactly one selected avatar, and extra people before any result
+file or public row is created. Original museum exhibits are explicitly excluded
+from living cast. Rejection or uncertainty returns 422; unavailable/malformed
+validation returns 502. Neither path publishes QR/download/gallery/email access,
+regenerates automatically, or falls back to another image generator. Failed
+request receipts replay the failure. Generation-provider fallback on an initial
+provider error remains unchanged.
+
+Validation adds one text/vision API request using the same provider key. Default
+models are `google/gemini-2.5-flash` through OpenRouter and `gemini-2.5-flash`
+direct. Models/timeouts are configurable through Compose and environment files.
+New manifests record only the references actually sent and the passed cast
+receipt. Existing results and source/production images were not deleted.
+
+Verification: 62/62 Node tests passed across the reference suite (3), API/vision/
+gallery/email/result/runtime suites (37), and publication/catalog/domain/receipt/
+session suites (22). `npm run check` passed: 36 production assets, hashes and
+ratios valid; Vite build successful. The tests include all seven characters,
+both styles, all three generation transports, default validator wiring with
+simulated responses, duplicate-avatar rejection, timeout/malformed fail-closed
+behavior, no publication during pending validation, and idempotent replay.
+
+No paid generation/vision request or real email was sent. These tests establish
+input routing and publication behavior, not real visual accuracy or historical
+likeness. Model validation can miss errors or reject valid results. Live
+acceptance with one to four visitors is still required after deployment.
+This correction is in the local working tree and has not been deployed to VPS.
+
 Tanggal pemeriksaan awal: 22 Oktober 2026.
 
 ## Tombol Mulai Foto dan variasi foto berjalan — 9 November 2026

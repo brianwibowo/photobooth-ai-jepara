@@ -2,7 +2,7 @@
 
 The active catalog uses five revised characters and nine museum locations,
 each available in `vintage` and `warna` styles. Vintage is the default.
-The five characters each use one selected face portrait and one selected body
+The five characters each retain one selected face portrait and one selected body
 image; the application does not send every alternative from the supplied set.
 All twenty-eight rebuild JPGs are kept under `assets/sources/`, separately from
 the optimized files served by the application. Derivatives are built with
@@ -40,8 +40,9 @@ within the source without upscaling. Adhiningrat and Soesalit retain the
 previous `display.webp` and `reference.webp` in their existing folders and their
 identity prompts. The old PNG scenes, reference-photo libraries and replaced
 character files have been removed.
-The client-selected face portrait is the identity authority; the body image
-supplies proportions and clothing, not another face to average in.
+The client-selected face portrait is the sole character image sent to the model.
+The body image is retained for the selection UI and provenance. Its second
+human-bearing input was removed after a duplicate-character report.
 
 Eighteen production background WebPs live in
 `public/assets/backgrounds/{vintage,warna}/{id}-2026-11-v2.webp`; their unmodified
@@ -104,11 +105,15 @@ All three provider paths share the same numbering and labels:
 
 1. Visitor photo: the only source of visitor identities and count.
 2. Primary selected-character face: fixed identity, added exactly once.
-3. Optional full-body image of that same character (five revised characters).
-4. Selected location/style photograph; this is Reference 3 when there is no body image.
+3. Selected location/style photograph.
 
-Every required asset is validated before any provider call, including the body
-reference. Missing files fail with `REFERENCE_MISSING`; previews and older
+This is exactly three images for all seven characters. Body photos are selection
+UI/archival assets only. Outfit details outside the primary portrait are described
+in text. This removes a second appearance of the same character from the input;
+it does not guarantee exact body proportions, outfit motifs, or model compliance.
+
+The primary character and selected background are validated before any provider
+call. The UI body image is not a generation dependency. Missing files fail with `REFERENCE_MISSING`; previews and older
 portraits are never substituted. Provider image inputs use JPEG quality 92 at
 maximum width 1536; the full visitor photo keeps its existing processing.
 Vintage prompts request restrained warmth with natural skin and facial detail;
@@ -125,7 +130,9 @@ variant. SQLite results retain `background_style` and a `manifest_json` snapshot
 of the character, scene, background ID/asset ID/hash, requested output ratio and
 optional visitor count. A restored result uses that snapshot rather than being
 relabeled by a later catalog revision. This stores selected-input provenance;
-it does not validate how closely the AI followed those inputs.
+it records input provenance independently of visual quality. New results use
+`single-character-v3`, `generationReferenceAssets`, and a `castValidation` receipt.
+`character.bodyAsset` is null because the body file was not sent to the model.
 
 Transport tests compare the actual image bytes, order, labels and missing-asset
 behavior for every character and current activity, including legacy IDs.
@@ -140,13 +147,13 @@ furniture/signage, static dioramas, contact shadows and clipping.
 The four supplied DOCX documents are preserved byte-for-byte under
 [`docs/asset-guidance`](asset-guidance/README.md), with source hashes. Current
 implementation adopts explicit asset/location IDs, revised-character priority,
-separate face/body roles, source provenance, static-exhibit instructions,
+single primary face input, source provenance, static-exhibit instructions,
 natural colors and matching previews. A historical filename is not interpreted
 as curator approval; no curator-approval registry has been implemented.
 
 The runtime still sends reference photographs to a generative full-scene edit.
-Individual segmentation, alpha masks, deterministic layer compositing, automatic
-visitor counting/mismatch detection, an identity scorer, a dedicated
+Individual segmentation, alpha masks, deterministic layer compositing, a
+deterministic visitor detector or identity scorer, a dedicated
 consent/deletion interface and optional paper-edge treatment are not implemented.
 Therefore, the stronger guidance requirements of immutable background pixels
 and unchanged human pixels are not established. The guidance's fixed A5 size is
@@ -194,7 +201,7 @@ single selected figure; Reference 3 supplied only the empty environment.
 Missing references fail rather than substituting a promotional group image.
 The optional count is not replaced with a default of one. When absent, the model
 must count visible visitors and preserve them all, plus exactly one selected
-figure. No automatic face detector or output-count validator is implemented.
+figure. At that time, no automatic face detector or output-count validator was implemented.
 
 Provider request tests validate the selected assets, exact order, and prompt
 constraints. They do not prove that a generative model will always comply;
@@ -206,3 +213,33 @@ The first November package used eight A5-ratio PNG backgrounds and a generated
 teaching-room cleanup with statues removed. That set and its cleanup prompt are
 superseded by the nine-location paired JPG package above. The current build uses
 the supplied diorama photographs intact; it does not recreate the earlier cleanup.
+
+## Closed-cast check (November 13, 2026)
+
+Before any result file, download token, QR, email access, or gallery row is made,
+a separate vision request compares the visitor input, single character reference,
+selected background, and generated result. It checks source/output visitor count,
+exactly one selected historical figure, no duplicated or missing visitor, and no
+extra living person. Existing busts, portraits, reliefs, and diorama figures in the
+background are museum exhibits and do not count as visitors or historical guests.
+
+The check uses the generation provider's key, with `OPENROUTER_CAST_MODEL`
+(default `google/gemini-2.5-flash`) or `GEMINI_CAST_MODEL` (default
+`gemini-2.5-flash`). It adds one text/vision API call per successful image response;
+there is no automatic generation retry after a rejection. Timeout defaults to
+45 seconds (`CAST_VALIDATION_TIMEOUT_MS`). Validation is required for AI output:
+uncertain/incorrect cast returns `422 OUTPUT_CAST_REJECTED`; missing credentials,
+network failure, timeout, or malformed response returns
+`502 OUTPUT_VALIDATION_UNAVAILABLE`. Neither response publishes a result.
+The existing request receipt records failure, so replay does not spend on another
+generation. The development-only local overlay remains private and unvalidated.
+
+This is a model-based quality check, not deterministic face recognition or a
+guarantee of historical likeness. It may miss errors or reject a valid image.
+Transport and mock tests prove routing and publication behavior only. Existing
+results are not retroactively checked or deleted. A real visual acceptance run
+with curator-approved references is still needed after deployment.
+
+Provider contracts: [OpenRouter structured outputs](https://openrouter.ai/docs/guides/features/structured-outputs),
+[vision model](https://openrouter.ai/google/gemini-2.5-flash),
+[Gemini structured outputs](https://ai.google.dev/gemini-api/docs/structured-output).

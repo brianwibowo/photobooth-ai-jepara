@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url'
 import express from 'express'
 import sharp from 'sharp'
 import { createApp } from '../server/index.js'
+import { mockCastValidation } from '../test/helpers/mock-cast.js'
 import { characters, homeBackground, getScenesForCharacter } from '../src/data.js'
 import { SESSION_KEY } from '../src/session-store.js'
 
@@ -25,6 +26,7 @@ const generate = async (args) => {
   return generated
 }
 const instance = createApp({
+  validateCast: mockCastValidation,
   dataDir: temporary,
   minIntervalMs: -1,
   rateLimit: 100,
